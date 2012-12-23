@@ -43,8 +43,8 @@ struct SnavelyReprojectionError {
     // Compute the center of distortion. The sign change comes from
     // the camera model that Noah Snavely’s Bundler assumes, whereby
     // the camera coordinate system has a negative z axis.
-    T xp = - p[0] / p[2];
-    T yp = - p[1] / p[2];
+    T xp = p[0] / p[2];
+    T yp = p[1] / p[2];
     // Apply second and fourth order radial distortion.
     const T& l1 = intrinsics[0];
     const T& l2 = intrinsics[1];
@@ -67,7 +67,7 @@ struct SnavelyReprojectionError {
 struct Frame {
   Frame() :
     rotation_ {1,0,0,0},
-    translation_ {0,0,0} {}
+    translation_ {0,0,10} {}
 
     double* rotation() { return &rotation_[0]; }
     double* translation() { return &translation_[0]; }
@@ -79,14 +79,14 @@ struct Frame {
 };
 
 struct Camera {
-  Camera() : data {1, -0.02, 0} {}
+  Camera() : data {.683, -0.02, 0} {}
   double data[3];
   // 0 == focal length.
   // 1, 2 == radial distortion
 };
 
 struct RealPoint {
-  RealPoint() : data { 0, 0, 10 } {}
+  RealPoint() : data { 0, 0, 0 } {}
   double data[3];
 };
 
@@ -158,7 +158,7 @@ struct Map {
 
 
 
-void RunSlam(Map* map, bool fix_frames, bool fix_distortion) {
+void RunSlam(Map* map) {
   // Create residuals for each observation in the bundle adjustment problem. The
   // parameters for cameras and points are added automatically.
   ceres::Problem problem;
@@ -166,7 +166,7 @@ void RunSlam(Map* map, bool fix_frames, bool fix_distortion) {
 
   set<Frame*> frame_set;
 
-  auto loss = new ceres::CauchyLoss(.1);
+  auto loss = new ceres::CauchyLoss(.01);
 
   for (const auto& o : map->obs) {
     CHECK_GE(o.frame_ref, 0);
@@ -198,6 +198,8 @@ void RunSlam(Map* map, bool fix_frames, bool fix_distortion) {
 
   if (frame_set.size() < 2)
     return;
+
+  int frames = frame_set.size();
 
 #if 0
   options.use_inner_iterations = true;
@@ -235,26 +237,28 @@ void RunSlam(Map* map, bool fix_frames, bool fix_distortion) {
   problem.SetParameterBlockConstant(map->frames[0].translation());
   problem.SetParameterBlockConstant(map->frames[0].rotation());
   //problem.SetParameterBlockConstant(&(map->camera.data[0]));
-  if (fix_distortion)
+  if (frames < 12)
     problem.SetParameterBlockConstant(&(map->camera.data[1]));
 
-  if (fix_frames) {
+  if ((frames%12) == 0) {
     for (int i = 1; (i + 2) < (map->frames.size() / 2);  ++i) {
-
-    auto f = &(map->frames[i]);
-    if (!frame_set.count(f))
-      continue;
-    problem.SetParameterBlockConstant(f->translation());
+      auto f = &(map->frames[i]);
+      if (!frame_set.count(f))
+        continue;
+      problem.SetParameterBlockConstant(f->translation());
+    }
   }
-}
 
   options.linear_solver_type = ceres::DENSE_SCHUR;
-  options.preconditioner_type = ceres::JACOBI;
+  options.preconditioner_type = ceres::CLUSTER_TRIDIAGONAL;
   options.minimizer_progress_to_stdout = true;
-  options.use_inner_iterations = true;
-  //options.use_nonmonotonic_steps = true;
-  options.max_num_iterations = 500;
-  options.function_tolerance = 1e-8;
+  //options.use_inner_iterations = true;
+  options.max_num_iterations = 5000;
+  options.function_tolerance = 1e-7;
+//  if (frames > 15) {
+//  options.use_nonmonotonic_steps = true;
+//  }
+  options.use_block_amd = true;
 
 
   ceres::Solver::Summary summary;
@@ -270,11 +274,23 @@ void UpdateMap(Map* map,
   CHECK_EQ(key_points.size(), descriptors.rows);
   CHECK_EQ(map->frames.size(), frame);
 
-  if (map->frames.size()) {
+  if (map->frames.size() > 3) {
+    auto s = map->frames.size();
+    auto& f1 = map->frames[s - 1];
+    auto& f2 = map->frames[s - 2];
+    double motion[3];
+    motion[0] = f1.translation()[0] - f2.translation()[0];
+    motion[1] = f1.translation()[1] - f2.translation()[1];
+    motion[2] = f1.translation()[2] - f2.translation()[2];
+    Frame f = f1;
+    f.translation()[0] += motion[0];
+    f.translation()[1] += motion[1];
+    f.translation()[2] += motion[2];
+    map->frames.push_back(f);
+  } else if (map->frames.size() > 0) {
     map->frames.push_back(map->frames.back());
     map->frames.back().translation()[0] += 0.1;
-  }
-  else {
+  } else {
     map->frames.push_back(Frame());
   }
 
@@ -285,7 +301,7 @@ void UpdateMap(Map* map,
     int best_match = -1;
     for (int di = 0; di < map->descs.size(); ++di) {
       auto& d = map->descs[di];
-      if ((frame - d.last_frame) > 5)
+      if ((frame - d.last_frame) > 15)
         continue;
       int dist = d.desc.distance(ptr);
       if (dist < min_distance) {
@@ -378,17 +394,18 @@ void NormMap(Map* map) {
 void DumpMap(Map* map) {
   // SortObs sorter;
   // sort(map->obs.begin(), map->obs.end(), sorter);
-#if 0
-  for (const auto& o : map->obs) {
-    printf("frame %4d pt %4d (%3f, %3f)\n",
-        o.frame_ref, o.point_ref, o.pt.x, o.pt.y);
-  }
-#endif
   for (auto& f : map->frames) {
     printf("(%f,%f,%f,%f) -> (%f, %f, %f)\n",
         f.rotation()[0], f.rotation()[1], f.rotation()[2], f.rotation()[3],
         f.translation()[0], f.translation()[1], f.translation()[2]);
   }
+#if 0
+  for (auto& p : map->points) {
+    printf("pt %f,%f,%f\n",
+        p.data[0], p.data[1], p.data[2]);
+  }
+#endif
+
   printf("focal %f r1 %f r2 %f\n",
       map->camera.data[0],
       map->camera.data[1],
@@ -465,7 +482,7 @@ int main(int argc, char*argv[]) {
     }
     if ((frame%3) == 0) {
       //NormMap(&map);
-      RunSlam(&map, (frame%12) == 0, frame < 10);
+      RunSlam(&map);
       DumpMap(&map);
 
     }

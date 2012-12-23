@@ -7,7 +7,7 @@ OBJS =  main.o
 
 LIBS = -lceres -lopencv_highgui -lopencv_core -lopencv_features2d \
        -lopencv_flann -lopencv_imgproc -lglog -lgomp -lpthread \
-       -lprotobuf -lcxsparse
+       -lprotobuf -lcxsparse  -lblas -llapack -lcholmod
 
 TARGET = slam
 
