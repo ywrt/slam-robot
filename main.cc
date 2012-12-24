@@ -397,7 +397,7 @@ void UpdateMap(Map* map,
     }
     //printf("%3d: dist %d (%d)\n", i, min_distance, best_match);
 
-    if (min_distance < 12) {
+    if (min_distance < 15) {
       DescribedPoint* dp = &(map->descs[best_match]);
       if (dp->last_frame == frame) {
         // A bad point. matches in it's own frame.
@@ -441,7 +441,7 @@ void UpdateMap(Map* map,
       ++dp->matches;
 
       map->obs.push_back(o);
-    } else {
+    } else if (min_distance > 35) {
       // No match and a distinct point.
       // insert this as a new image point.
       map->descs.push_back(
@@ -536,7 +536,7 @@ int main(int argc, char*argv[]) {
   cv::Mat out;
   cv::Mat grey;
 
-  Ptr<FeatureDetector> detector(new ORB(500, 1.2, 8));
+  Ptr<FeatureDetector> detector(new ORB(1500, 1.2, 6));
   Ptr<DescriptorExtractor> extractor(DescriptorExtractor::create("FREAK"));
 
   int frame = -1;
@@ -586,8 +586,14 @@ int main(int argc, char*argv[]) {
 
     cv::imshow( "Display window", out);
 
-    if ((frame%3) == 0) {
-   //   RunSlam(&map, frame - 15);
+    int mod = 3;
+    if (frame > 20)
+      mod = 6;
+    if (frame > 50)
+      mod = 15;
+
+    if ((frame%mod) == 0) {
+      RunSlam(&map, frame - mod);
       //DumpMap(&map);
       RunSlam(&map, -1);
       DumpMap(&map);
