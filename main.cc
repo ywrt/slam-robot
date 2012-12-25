@@ -18,6 +18,16 @@
 
 using namespace std;
 using namespace cv;
+using namespace Eigen;
+
+// 1. Merge RealPoint and DescribedPoint.
+// 2. Maintain a list of observations per point.
+// 3. Check visibility before attempting to match?
+// 4. Better point tracking: patch matching?
+// 5. Downscale to reduce impact of compression.
+
+
+
 
 void Process(char* filename) {
 }
@@ -72,13 +82,13 @@ struct Frame {
     rotation_ {1,0,0,0},
     translation_ {0,0,10} {}
 
-    double* rotation() { return &rotation_[0]; }
-    double* translation() { return &translation_[0]; }
-    const double* rotation() const { return &rotation_[0]; }
-    const double* translation() const { return &translation_[0]; }
+    double* rotation() { return rotation_.data(); }
+    double* translation() { return translation_.data(); }
+    const double* rotation() const { return rotation_.data(); }
+    const double* translation() const { return translation_.data(); }
 
-    double rotation_[4];
-    double translation_[3];
+    Vector4d rotation_;
+    Vector3d translation_;
     // 0,1,2,3 == Quaternion
     // 4,5,6 == Camera translation
 };
@@ -95,12 +105,14 @@ struct Camera {
 };
 
 struct RealPoint {
-  RealPoint() : data { 0, 0, 0, 1 } {}
-  double data[4];
+  RealPoint() : data_ { 0, 0, 0, 1 } {}
+  double* data() { return data_.data(); }
+  const double* data() const { return data_.data(); }
+  Vector4d data_;
 };
 
 struct Observation {
-  Point2f pt;
+  Vector2d pt;
   int point_ref;
   int frame_ref;
   int desc_ref;
@@ -116,7 +128,7 @@ void Project(
   p(camera.scale(), camera.instrinsics(),
       frame.rotation(),
       frame.translation(),
-      &(point.data[0]),
+      point.data(),
       result);
 }
 
@@ -142,7 +154,7 @@ struct Descriptor {
 };
 
 struct DescribedPoint {
-  DescribedPoint(const Descriptor& d, int frame, Point2f p) :
+  DescribedPoint(const Descriptor& d, int frame, Vector2d p) :
     desc(d),
     last_frame(frame),
     last_point(p),
@@ -153,14 +165,14 @@ struct DescribedPoint {
 
   Descriptor desc;
   int last_frame;
-  Point2f last_point;
+  Vector2d last_point;
   int point_ref;
   int matches;
   int last_obs;
   bool bad;
 };
 
-struct Map {
+struct LocalMap {
   Camera camera;
   vector<Frame> frames;
   vector<RealPoint> points;
@@ -183,16 +195,13 @@ public:
 bool HomogenousParameterization::Plus(const double* x,
     const double* delta,
     double* x_plus_delta) const {
-  double r[4];
-  r[0] = x[0] + delta[0];
-  r[1] = x[1] + delta[1];
-  r[2] = x[2] + delta[2];
-  r[3] = x[3];
-  double norm = sqrt(r[0]*r[0] + r[1]*r[1] + r[2]*r[2] + r[3]*r[3]);
-  x_plus_delta[0] = r[0] / norm;
-  x_plus_delta[1] = r[1] / norm;
-  x_plus_delta[2] = r[2] / norm;
-  x_plus_delta[3] = r[3] / norm;
+  Map<const Vector4d> mx(x);
+  Map<const Vector3d> mdelta(delta);
+  Map<Vector4d> mx_plus_delta(x_plus_delta);
+
+  Vector4d sum = mx;
+  sum.topLeftCorner<3,1>() += mdelta;
+  mx_plus_delta = sum / sum.norm();
   return true;
 }
 
@@ -203,24 +212,24 @@ bool HomogenousParameterization::ComputeJacobian(
   double ssq = x[0]*x[0] + x[1]*x[1] + x[2]*x[2] + x[3]*x[3];
   double ssq32 = sqrt(ssq)*ssq;
 
-  jacobian[0] = 1/sqrt(ssq) - x[0]*x[0]/ssq32;
-  jacobian[3] = -x[0]*x[1]/ssq32;
-  jacobian[6] = -x[0]*x[2]/ssq32;
-  jacobian[9] = -x[0]*x[3]/ssq32;
+  jacobian[0]  = -x[0]*x[0]/ssq32 + 1/sqrt(ssq);
+  jacobian[3]  = -x[0]*x[1]/ssq32;
+  jacobian[6]  = -x[0]*x[2]/ssq32;
+  jacobian[9]  = -x[0]*x[3]/ssq32;
 
-  jacobian[1] = -x[1]*x[0]/ssq32;
-  jacobian[4] = 1/sqrt(ssq) - x[1]*x[1]/ssq32;
-  jacobian[7] = -x[1]*x[2]/ssq32;
+  jacobian[1]  = -x[1]*x[0]/ssq32;
+  jacobian[4]  = -x[1]*x[1]/ssq32 + 1/sqrt(ssq);
+  jacobian[7]  = -x[1]*x[2]/ssq32;
   jacobian[10] = -x[1]*x[3]/ssq32;
 
-  jacobian[2] = -x[2]*x[0]/ssq32;
-  jacobian[5] = -x[2]*x[1]/ssq32;
-  jacobian[8] = 1/sqrt(ssq) - x[2]*x[2]/ssq32;
+  jacobian[2]  = -x[2]*x[0]/ssq32;
+  jacobian[5]  = -x[2]*x[1]/ssq32;
+  jacobian[8]  = -x[2]*x[2]/ssq32 + 1/sqrt(ssq);
   jacobian[11] = -x[2]*x[3]/ssq32;
   return true;
 }
 
-void RunSlam(Map* map, int min_frame_to_solve) {
+void RunSlam(LocalMap* map, int min_frame_to_solve) {
   // Create residuals for each observation in the bundle adjustment problem. The
   // parameters for cameras and points are added automatically.
   ceres::Problem problem;
@@ -245,7 +254,7 @@ void RunSlam(Map* map, int min_frame_to_solve) {
     // image location and compares the reprojection against the observation.
     ceres::CostFunction* cost_function =
         new ceres::AutoDiffCostFunction<SnavelyReprojectionError, 2, 1, 2, 4, 3, 4>(
-            new SnavelyReprojectionError(o.pt.x, o.pt.y));
+            new SnavelyReprojectionError(o.pt(0), o.pt(1)));
 
     problem.AddResidualBlock(cost_function,
         loss /* squared loss */ ,
@@ -253,7 +262,7 @@ void RunSlam(Map* map, int min_frame_to_solve) {
         &(map->camera.data[1]),
         map->frames[o.frame_ref].rotation(),
         map->frames[o.frame_ref].translation(),
-        &(map->points[o.point_ref].data[0]));
+        map->points[o.point_ref].data());
     Frame* f = &(map->frames[o.frame_ref]);
     frame_set.insert(f);
     RealPoint* p = &(map->points[o.point_ref]);
@@ -278,7 +287,7 @@ void RunSlam(Map* map, int min_frame_to_solve) {
       new ceres::ParameterBlockOrdering;
 
   for (RealPoint& p : map->points) {
-    ordering->AddElementToGroup(&(p.data[0]), 0);
+    ordering->AddElementToGroup(p.data(), 0);
   }
   for (auto frame : frame_set) {
     ordering->AddElementToGroup(frame->translation(), 1);
@@ -297,7 +306,7 @@ void RunSlam(Map* map, int min_frame_to_solve) {
   }
   auto homogenous = new HomogenousParameterization;
   for (auto pt : point_set) {
-    problem.SetParameterization(&(pt->data[0]), homogenous);
+    problem.SetParameterization(pt->data(), homogenous);
   }
 
   problem.SetParameterBlockConstant(map->frames[0].translation());
@@ -321,7 +330,7 @@ void RunSlam(Map* map, int min_frame_to_solve) {
       if (desc.last_frame >= min_frame_to_solve)
         continue;
       problem.SetParameterBlockConstant(
-          &(map->points[o.point_ref].data[0]));
+          map->points[o.point_ref].data());
     }
   }
 
@@ -344,9 +353,9 @@ void RunSlam(Map* map, int min_frame_to_solve) {
   std::cout << summary.FullReport() << "\n";
 }
 
-void UpdateMap(Map* map,
+void UpdateMap(LocalMap* map,
     int frame,
-    const vector<KeyPoint>& key_points,
+    const vector<Vector2d>& key_points,
     const Mat& descriptors) {
 
   CHECK_EQ(key_points.size(), descriptors.rows);
@@ -356,22 +365,12 @@ void UpdateMap(Map* map,
     auto s = map->frames.size();
     auto& f1 = map->frames[s - 1];
     auto& f2 = map->frames[s - 2];
-    double motion[3];
-    motion[0] = f1.translation()[0] - f2.translation()[0];
-    motion[1] = f1.translation()[1] - f2.translation()[1];
-    motion[2] = f1.translation()[2] - f2.translation()[2];
+    Vector3d motion = f1.translation_ - f2.translation_;
+    if (motion.norm() > 1)
+      motion /= motion.norm();
+
     Frame f = f1;
-    if (motion[0] < -1) motion[0] = -1;
-    if (motion[1] < -1) motion[1] = -1;
-    if (motion[2] < -1) motion[2] = -1;
-
-    if (motion[0] > 1) motion[0] = 1;
-    if (motion[1] > 1) motion[1] = 1;
-    if (motion[2] > 1) motion[2] = 1;
-
-    f.translation()[0] += motion[0];
-    f.translation()[1] += motion[1];
-    f.translation()[2] += motion[2];
+    f.translation_ += motion;
     map->frames.push_back(f);
   } else if (map->frames.size() > 0) {
     map->frames.push_back(map->frames.back());
@@ -385,7 +384,7 @@ void UpdateMap(Map* map,
     uint8_t* ptr = (uint8_t*) descriptors.ptr(i);
     int min_distance = 512;
     int best_match = -1;
-    for (int di = 0; di < map->descs.size(); ++di) {
+    for (size_t di = 0; di < map->descs.size(); ++di) {
       auto& d = map->descs[di];
       if ((frame - d.last_frame) > 115)
         continue;
@@ -417,8 +416,6 @@ void UpdateMap(Map* map,
 
         Observation o;
         o.pt = dp->last_point;
-        o.pt.x = 1. - o.pt.x / 1024. * 2.;
-        o.pt.y = 1. - o.pt.y / 768. * 2.;
         o.frame_ref = dp->last_frame;
         o.point_ref = dp->point_ref;
         o.desc_ref = best_match;
@@ -427,16 +424,14 @@ void UpdateMap(Map* map,
 
       }
       Observation o;
-      o.pt = key_points[i].pt;
-      o.pt.x = 1. - o.pt.x / 1024. * 2.;
-      o.pt.y = 1. - o.pt.y / 768. * 2.;
+      o.pt = key_points[i];
       o.frame_ref = frame;
       o.point_ref = dp->point_ref;
       o.desc_ref = best_match;
       o.prev_obs = dp->last_obs;
 
       dp->last_frame = frame;
-      dp->last_point = key_points[i].pt;
+      dp->last_point = key_points[i];
       dp->last_obs = map->obs.size();
       ++dp->matches;
 
@@ -448,12 +443,12 @@ void UpdateMap(Map* map,
           DescribedPoint(
               Descriptor(ptr),
               frame,
-              key_points[i].pt));
+              key_points[i]));
     }
   }
 }
 
-void NormMap(Map* map) {
+void NormMap(LocalMap* map) {
   double sum(0);
   double count(0);
   for (auto& f : map->frames) {
@@ -477,20 +472,19 @@ void NormMap(Map* map) {
   }
 }
 
-void DumpMap(Map* map) {
+void DumpMap(LocalMap* map) {
   // SortObs sorter;
   // sort(map->obs.begin(), map->obs.end(), sorter);
   int err_hist[10] = {0,0,0,0,0,0,0,0,0,0};
   for (auto& o : map->obs) {
-    double r[2];
-    r[0] = o.pt.x;
-    r[1] = o.pt.y;
+    Vector2d r(o.pt);
+
     Project(
         map->camera,
         map->frames[o.frame_ref],
         map->points[o.point_ref],
-        r);
-    double err = sqrt(r[0]*r[0]+r[1]*r[1]) * 1000;
+        r.data());
+    double err = r.norm() * 1000;
     if (err < 10) {
       ++err_hist[(int)err];
       continue;
@@ -498,7 +492,7 @@ void DumpMap(Map* map) {
     printf("frame %3d pt %3d : [%7.3f %7.3f] (%7.2f,%7.2f) -> %.2f\n",
         o.frame_ref,
         o.point_ref,
-        o.pt.x, o.pt.y,
+        o.pt(0), o.pt(1),
         r[0] * 1000, r[1] * 1000,
         err);
   }
@@ -523,6 +517,28 @@ void DumpMap(Map* map) {
       map->camera.data[2]);
 }
 
+void DrawCross(cv::Mat* out, const Vector2d& point, int size, Scalar color) {
+  Point2f a(
+      (point(0) + 1)/2 * out->cols,
+      (point(1) + 1)/2 * out->rows);
+  line(*out, a - Point2f(size,size), a + Point2f(size,size), color, 1, 8);
+  line(*out, a - Point2f(size,-size), a + Point2f(size,-size), color, 1, 8);
+}
+
+void DrawLine(cv::Mat* out,
+    const Vector2d& from,
+    const Vector2d& to,
+    Scalar color) {
+  Point2f a(
+       (from(0) + 1)/2 * out->cols,
+       (from(1) + 1)/2 * out->rows);
+  Point2f b(
+         (to(0) + 1)/2 * out->cols,
+         (to(1) + 1)/2 * out->rows);
+  line(*out, a, b, color, 1, 8);
+}
+
+
 int main(int argc, char*argv[]) {
   if (argc < 2) {
     fprintf(stderr, "Usage: slam filename\n");
@@ -541,7 +557,7 @@ int main(int argc, char*argv[]) {
 
   int frame = -1;
 
-  Map map;
+  LocalMap map;
 
   while (vid.read(img)) {
     frame++;
@@ -554,33 +570,37 @@ int main(int argc, char*argv[]) {
 
     Mat descriptors;
     extractor->compute(grey, keypoints, descriptors);
+    vector<Vector2d> normed_points;
+    Vector2d scale;
+    scale[0] = out.cols;
+    scale[1] = out.rows;
+    for (auto& k : keypoints) {
+      Vector2d p;
+      p[0] = k.pt.x;
+      p[1] = k.pt.y;
 
-    UpdateMap(&map, frame, keypoints, descriptors);
+      p = 1 - 2 * p.array() / scale.array();
+      normed_points.push_back(p);
+    }
+
+    UpdateMap(&map, frame, normed_points, descriptors);
 
     for (auto& dp : map.descs) {
       if (dp.point_ref >= 0)
         continue;
       if ((frame - dp.last_frame) > 5)
         continue;
-      const Point2f&a = dp.last_point;
-      auto c = Scalar(0,255,0);
-      line(out, a - Point2f(2,2), a + Point2f(2,2), c, 1, 8);
-      line(out, a - Point2f(2,-2), a + Point2f(2,-2), c, 1, 8);
+      DrawCross(&out, dp.last_point, 2, Scalar(0,255,0));
     }
 
     for (const Observation& o : map.obs) {
       if (o.frame_ref != frame)
         continue;
-      auto c = Scalar(0,0,255);
-      const Point2f& a = o.pt;
-      line(out, a - Point2f(5,5), a + Point2f(5,5), c, 2, 8);
-      line(out, a - Point2f(5,-5), a + Point2f(5,-5), c, 2, 8);
+      DrawCross(&out, o.pt, 5, Scalar(0,0,255));
 
       for (auto x = &o; x->prev_obs >= 0 ; x = &(map.obs[x->prev_obs])) {
         auto px = &(map.obs[x->prev_obs]);
-        const Point2f& a = x->pt;
-        const Point2f& b = px->pt;
-        line(out, a, b, Scalar(0,0,0), 1, 8);
+        DrawLine(&out, x->pt, px->pt, Scalar(0,0,0));
       }
     }
 
