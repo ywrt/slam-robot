@@ -127,27 +127,11 @@ struct Descriptor {
     }
     return bits;
   }
+  int distance(const Descriptor& desc) const {
+    return distance((uint8_t*)desc.data);
+  }
 
   uint32_t data[16];
-};
-
-struct DescribedPoint {
-  DescribedPoint(const Descriptor& d, int frame, Vector2d p) :
-    desc(d),
-    last_frame(frame),
-    last_point(p),
-    point_ref(-1),
-    matches(0),
-    last_obs(-1),
-    bad(false) {}
-
-  Descriptor desc;
-  int last_frame;
-  Vector2d last_point;
-  int point_ref;
-  int matches;
-  int last_obs;
-  bool bad;
 };
 
 // A patch from a particular frame.
@@ -179,15 +163,22 @@ struct TrackedPoint {
       return observations_.back().pt;
     }
 
-
     int num_observations() const { return observations_.size(); }
+
     // Match a descriptor against this point. 'max_distance'
     // is the maximum descriptor distance allowed to succeed.
     // If there's a match, return true and update 'max_distance'
     // to the found distance.
     bool match(const Descriptor& desc, int* max_distance) {
-      CHECK(false);
-      return false;
+      bool matched = false;
+      for (const auto& d : descriptors_) {
+        int distance = d.distance(desc);
+        if (distance > *max_distance)
+          continue;
+        *max_distance = distance;
+        matched = true;
+      }
+      return matched;
     }
 
     Vector4d location_;  // Homogeneous location in world.
@@ -438,10 +429,9 @@ void UpdateMap(LocalMap* map,
       if (point->match(ptr, &min_distance))
         best_match = point;
     }
-
-    //printf("%3d: dist %d (%d)\n", i, min_distance, best_match);
     if (min_distance < 512)
       hist[min_distance/10]++;
+    //printf("%3d: dist %d (%d)\n", i, min_distance, best_match);
 
     if (min_distance < 30) {
       CHECK(best_match != NULL);
@@ -473,6 +463,8 @@ void UpdateMap(LocalMap* map,
   // Remove tracked points that aren't useful. I.e.
   // tracked points that matched only one frame, and were
   // created more than 3 frames ago.
+  // TODO: change map->points to be a vector of points
+  // and have this erase bad points.
   for (auto& point : map->points) {
     if (point.num_observations() > 1)
       continue;
