@@ -422,12 +422,16 @@ void UpdateMap(LocalMap* map,
   // Compute approximate point visibility.
   set<TrackedPoint*> points;
   for (auto& point : map->points) {
+    if (point.bad_)
+      continue;
     points.insert(&point);  // TODO: actually compute visibility.
   }
 
-
+  // Match tracked points into the current frame.
   for (int i = 0; i < descriptors.rows;++i) {
     uint8_t* ptr = (uint8_t*) descriptors.ptr(i);
+    Descriptor desc(ptr);
+
     int min_distance = 512;
     TrackedPoint* best_match = NULL;
     for (auto& point : points) {
@@ -462,10 +466,19 @@ void UpdateMap(LocalMap* map,
       o.pt = key_points[i];
       o.frame_ref = frame;
       point->observations_.push_back(o);
-
-      Descriptor desc(ptr);
       point->descriptors_.push_back(desc);
     }
+  }
+
+  // Remove tracked points that aren't useful. I.e.
+  // tracked points that matched only one frame, and were
+  // created more than 3 frames ago.
+  for (auto& point : map->points) {
+    if (point.num_observations() > 1)
+      continue;
+    if ((frame - point.last_frame()) < 3)
+      continue;
+    point.bad_ = true;
   }
 
   for (size_t i = 0; i < 512; ++i) {
