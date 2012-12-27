@@ -76,7 +76,7 @@ struct SnavelyReprojectionError {
   double observed_y;
 };
 
-
+// Position and orientation of a frame camera.
 struct Frame {
   Frame() :
     rotation_ {1,0,0,0},
@@ -93,6 +93,7 @@ struct Frame {
     // 4,5,6 == Camera translation
 };
 
+// Camera instrinsics.
 struct Camera {
   Camera() : data {1.3, -0.02, 0} {}
   double data[3];
@@ -104,33 +105,10 @@ struct Camera {
   const double* instrinsics() const { return &data[1]; }
 };
 
-struct RealPoint {
-  RealPoint() : data_ { 0, 0, 0, 1 } {}
-  double* data() { return data_.data(); }
-  const double* data() const { return data_.data(); }
-  Vector4d data_;
-};
-
 struct Observation {
   Vector2d pt;
-  int point_ref;
   int frame_ref;
-  int desc_ref;
-  int prev_obs;
 };
-
-void Project(
-    const Camera& camera,
-    const Frame& frame,
-    const RealPoint& point,
-    double* result) {
-  SnavelyReprojectionError p(result[0],result[1]);
-  p(camera.scale(), camera.instrinsics(),
-      frame.rotation(),
-      frame.translation(),
-      point.data(),
-      result);
-}
 
 struct Descriptor {
   Descriptor(const uint8_t* v) {
@@ -172,24 +150,84 @@ struct DescribedPoint {
   bool bad;
 };
 
+// A patch from a particular frame.
+// Used for accurate cross-frame matching.
+struct Patch {
+  Vector2d pt;
+  uint8_t data[64];
+  int frame_ref;
+};
+
+// A fully tracked point.
+// Has the location in world-space, the descriptors, and any
+// observations.
+struct TrackedPoint {
+  TrackedPoint() :
+    location_ { 0, 0, 0, 1},
+    bad_(false)
+    { }
+
+    const double* location() const { return location_.data(); }
+    double* location() { return location_.data(); }
+
+    int last_frame() const {
+      if (observations_.size() < 1)
+        return -1;
+      return observations_.back().frame_ref;
+    }
+    const Vector2d& last_point() const {
+      return observations_.back().pt;
+    }
+
+
+    int num_observations() const { return observations_.size(); }
+    // Match a descriptor against this point. 'max_distance'
+    // is the maximum descriptor distance allowed to succeed.
+    // If there's a match, return true and update 'max_distance'
+    // to the found distance.
+    bool match(const Descriptor& desc, int* max_distance) {
+      CHECK(false);
+      return false;
+    }
+
+    Vector4d location_;  // Homogeneous location in world.
+    vector<Observation> observations_;
+    vector<Descriptor> descriptors_;
+    bool bad_;
+};
+
 struct LocalMap {
   Camera camera;
   vector<Frame> frames;
-  vector<RealPoint> points;
+  vector<TrackedPoint> points;
   vector<Observation> obs;
-  vector<DescribedPoint> descs;
 };
+
+
+void Project(
+    const Camera& camera,
+    const Frame& frame,
+    const TrackedPoint& point,
+    double* result) {
+  SnavelyReprojectionError p(result[0],result[1]);
+  p(camera.scale(), camera.instrinsics(),
+      frame.rotation(),
+      frame.translation(),
+      point.location(),
+      result);
+}
+
 
 class HomogenousParameterization : public ceres::LocalParameterization {
 public:
- virtual ~HomogenousParameterization() {}
- virtual bool Plus(const double* x,
-                   const double* delta,
-                   double* x_plus_delta) const;
- virtual bool ComputeJacobian(const double* x,
-                              double* jacobian) const;
- virtual int GlobalSize() const { return 4; }
- virtual int LocalSize() const { return 3; }
+  virtual ~HomogenousParameterization() {}
+virtual bool Plus(const double* x,
+    const double* delta,
+    double* x_plus_delta) const;
+virtual bool ComputeJacobian(const double* x,
+    double* jacobian) const;
+virtual int GlobalSize() const { return 4; }
+virtual int LocalSize() const { return 3; }
 };
 
 bool HomogenousParameterization::Plus(const double* x,
@@ -238,35 +276,36 @@ void RunSlam(LocalMap* map, int min_frame_to_solve) {
   const int frame = map->frames.size() - 1;
 
   set<Frame*> frame_set;
-  set<RealPoint*> point_set;
+  set<TrackedPoint*> point_set;
 
   auto loss = new ceres::CauchyLoss(.005);
   //auto loss = new ceres::HuberLoss(0.02);
 
-  for (const auto& o : map->obs) {
-    CHECK_GE(o.frame_ref, 0);
-    CHECK_GE(o.point_ref, 0);
-    CHECK_LT(o.frame_ref, map->frames.size());
-    CHECK_LT(o.point_ref, map->points.size());
+  for (auto& point : map->points) {
+    if (point.observations_.size() < 2)
+      continue;
+    for (const auto& o : point.observations_) {
+      CHECK_GE(o.frame_ref, 0);
+      CHECK_LT(o.frame_ref, map->frames.size());
 
-    // Each Residual block takes a point and a camera as input and outputs a 2
-    // dimensional residual. Internally, the cost function stores the observed
-    // image location and compares the reprojection against the observation.
-    ceres::CostFunction* cost_function =
-        new ceres::AutoDiffCostFunction<SnavelyReprojectionError, 2, 1, 2, 4, 3, 4>(
-            new SnavelyReprojectionError(o.pt(0), o.pt(1)));
+      // Each Residual block takes a point and a camera as input and outputs a 2
+      // dimensional residual. Internally, the cost function stores the observed
+      // image location and compares the reprojection against the observation.
+      ceres::CostFunction* cost_function =
+          new ceres::AutoDiffCostFunction<SnavelyReprojectionError, 2, 1, 2, 4, 3, 4>(
+              new SnavelyReprojectionError(o.pt(0), o.pt(1)));
 
-    problem.AddResidualBlock(cost_function,
-        loss /* squared loss */ ,
-        &(map->camera.data[0]),
-        &(map->camera.data[1]),
-        map->frames[o.frame_ref].rotation(),
-        map->frames[o.frame_ref].translation(),
-        map->points[o.point_ref].data());
-    Frame* f = &(map->frames[o.frame_ref]);
-    frame_set.insert(f);
-    RealPoint* p = &(map->points[o.point_ref]);
-    point_set.insert(p);
+      problem.AddResidualBlock(cost_function,
+          loss /* squared loss */ ,
+          &(map->camera.data[0]),
+          &(map->camera.data[1]),
+          map->frames[o.frame_ref].rotation(),
+          map->frames[o.frame_ref].translation(),
+          point.location());
+      Frame* f = &(map->frames[o.frame_ref]);
+      frame_set.insert(f);
+    }
+    point_set.insert(&point);
   }
 
   if (frame_set.size() < 2)
@@ -286,8 +325,8 @@ void RunSlam(LocalMap* map, int min_frame_to_solve) {
   ceres::ParameterBlockOrdering* ordering =
       new ceres::ParameterBlockOrdering;
 
-  for (RealPoint& p : map->points) {
-    ordering->AddElementToGroup(p.data(), 0);
+  for (TrackedPoint& p : map->points) {
+    ordering->AddElementToGroup(p.location(), 0);
   }
   for (auto frame : frame_set) {
     ordering->AddElementToGroup(frame->translation(), 1);
@@ -305,14 +344,14 @@ void RunSlam(LocalMap* map, int min_frame_to_solve) {
         quaternion_parameterization);
   }
   auto homogenous = new HomogenousParameterization;
-  for (auto pt : point_set) {
-    problem.SetParameterization(pt->data(), homogenous);
+  for (auto& pt : point_set) {
+    problem.SetParameterization(pt->location(), homogenous);
   }
 
   problem.SetParameterBlockConstant(map->frames[0].translation());
   problem.SetParameterBlockConstant(map->frames[0].rotation());
   if (frame < 100)
-  problem.SetParameterBlockConstant(&(map->camera.data[0]));
+    problem.SetParameterBlockConstant(&(map->camera.data[0]));
   if (frame < 200)
     problem.SetParameterBlockConstant(&(map->camera.data[1]));
 
@@ -325,12 +364,11 @@ void RunSlam(LocalMap* map, int min_frame_to_solve) {
   }
 
   if (min_frame_to_solve >= 0) {
-    for (const auto& o : map->obs) {
-      auto& desc = map->descs[o.desc_ref];
-      if (desc.last_frame >= min_frame_to_solve)
+    for (const auto& point : point_set) {
+      if (point->last_frame() >= min_frame_to_solve)
         continue;
       problem.SetParameterBlockConstant(
-          map->points[o.point_ref].data());
+          point->location());
     }
   }
 
@@ -379,72 +417,61 @@ void UpdateMap(LocalMap* map,
     map->frames.push_back(Frame());
   }
 
+  int hist[512] = {0,};
+
+  // Compute approximate point visibility.
+  set<TrackedPoint*> points;
+  for (auto& point : map->points) {
+    points.insert(&point);  // TODO: actually compute visibility.
+  }
+
 
   for (int i = 0; i < descriptors.rows;++i) {
     uint8_t* ptr = (uint8_t*) descriptors.ptr(i);
     int min_distance = 512;
-    int best_match = -1;
-    for (size_t di = 0; di < map->descs.size(); ++di) {
-      auto& d = map->descs[di];
-      if ((frame - d.last_frame) > 115)
-        continue;
-      int dist = d.desc.distance(ptr);
-      if (dist < min_distance) {
-        min_distance = dist;
-        best_match = di;
-      }
+    TrackedPoint* best_match = NULL;
+    for (auto& point : points) {
+      if (point->match(ptr, &min_distance))
+        best_match = point;
     }
+
     //printf("%3d: dist %d (%d)\n", i, min_distance, best_match);
+    if (min_distance < 512)
+      hist[min_distance/10]++;
 
-    if (min_distance < 15) {
-      DescribedPoint* dp = &(map->descs[best_match]);
-      if (dp->last_frame == frame) {
-        // A bad point. matches in it's own frame.
-        dp->bad = true;
-      }
-      if (dp->bad)
+    if (min_distance < 30) {
+      CHECK(best_match != NULL);
+      if (best_match->last_frame() == frame) {
+        // We've already matched this point in this frame!
+        // Mark the point as bad.
+        best_match->bad_ = true;
         continue;
-      // A useful match
-      // First, ensure the original described point is inserted.
-
-      if (dp->point_ref < 0) {
-        dp->point_ref = map->points.size();
-        map->points.push_back(RealPoint());
-
-        dp->matches = 1;
-        dp->last_obs = map->obs.size();
-
-        Observation o;
-        o.pt = dp->last_point;
-        o.frame_ref = dp->last_frame;
-        o.point_ref = dp->point_ref;
-        o.desc_ref = best_match;
-        o.prev_obs = -1;
-        map->obs.push_back(o);
-
       }
+
+      // A useful match
       Observation o;
       o.pt = key_points[i];
       o.frame_ref = frame;
-      o.point_ref = dp->point_ref;
-      o.desc_ref = best_match;
-      o.prev_obs = dp->last_obs;
-
-      dp->last_frame = frame;
-      dp->last_point = key_points[i];
-      dp->last_obs = map->obs.size();
-      ++dp->matches;
-
-      map->obs.push_back(o);
-    } else if (min_distance > 35) {
+      best_match->observations_.push_back(o);
+    } else if (min_distance > 15) {
       // No match and a distinct point.
       // insert this as a new image point.
-      map->descs.push_back(
-          DescribedPoint(
-              Descriptor(ptr),
-              frame,
-              key_points[i]));
+      map->points.push_back(TrackedPoint());
+      TrackedPoint* point = &map->points.back();
+      Observation o;
+      o.pt = key_points[i];
+      o.frame_ref = frame;
+      point->observations_.push_back(o);
+
+      Descriptor desc(ptr);
+      point->descriptors_.push_back(desc);
     }
+  }
+
+  for (size_t i = 0; i < 512; ++i) {
+    if (!hist[i])
+      continue;
+    printf("%3zd: %d\n", i, hist[i]);
   }
 }
 
@@ -476,25 +503,29 @@ void DumpMap(LocalMap* map) {
   // SortObs sorter;
   // sort(map->obs.begin(), map->obs.end(), sorter);
   int err_hist[10] = {0,0,0,0,0,0,0,0,0,0};
-  for (auto& o : map->obs) {
-    Vector2d r(o.pt);
 
-    Project(
-        map->camera,
-        map->frames[o.frame_ref],
-        map->points[o.point_ref],
-        r.data());
-    double err = r.norm() * 1000;
-    if (err < 10) {
-      ++err_hist[(int)err];
-      continue;
+
+  for (auto& point : map->points) {
+    for (auto& o : point.observations_) {
+      Vector2d r(o.pt);
+
+      Project(
+          map->camera,
+          map->frames[o.frame_ref],
+          point,
+          r.data());
+      double err = r.norm() * 1000;
+      if (err < 10) {
+        ++err_hist[(int)err];
+        continue;
+      }
+      printf("frame %3d : (matches %d) [%7.3f %7.3f] (%7.2f,%7.2f) -> %.2f\n",
+          o.frame_ref,
+          point.num_observations(),
+          o.pt(0), o.pt(1),
+          r[0] * 1000, r[1] * 1000,
+          err);
     }
-    printf("frame %3d pt %3d : [%7.3f %7.3f] (%7.2f,%7.2f) -> %.2f\n",
-        o.frame_ref,
-        o.point_ref,
-        o.pt(0), o.pt(1),
-        r[0] * 1000, r[1] * 1000,
-        err);
   }
   for (size_t i = 0; i < 10; ++i) {
     printf("err_hist: %2ld : %5d\n", i, err_hist[i]);
@@ -530,11 +561,11 @@ void DrawLine(cv::Mat* out,
     const Vector2d& to,
     Scalar color) {
   Point2f a(
-       (from(0) + 1)/2 * out->cols,
-       (from(1) + 1)/2 * out->rows);
+      (from(0) + 1)/2 * out->cols,
+      (from(1) + 1)/2 * out->rows);
   Point2f b(
-         (to(0) + 1)/2 * out->cols,
-         (to(1) + 1)/2 * out->rows);
+      (to(0) + 1)/2 * out->cols,
+      (to(1) + 1)/2 * out->rows);
   line(*out, a, b, color, 1, 8);
 }
 
@@ -549,11 +580,16 @@ int main(int argc, char*argv[]) {
 
   cv::VideoCapture vid(argv[1]);
   cv::Mat img;
+  cv::Mat t;
   cv::Mat out;
   cv::Mat grey;
 
-  Ptr<FeatureDetector> detector(new ORB(1500, 1.2, 6));
-  Ptr<DescriptorExtractor> extractor(DescriptorExtractor::create("FREAK"));
+  Ptr<FeatureDetector> detector =
+      new GridAdaptedFeatureDetector(
+          new PyramidAdaptedFeatureDetector(
+              FeatureDetector::create("FAST")),
+              150);
+  ORB extractor(150, 1.3, 3);
 
   int frame = -1;
 
@@ -562,14 +598,16 @@ int main(int argc, char*argv[]) {
   while (vid.read(img)) {
     frame++;
 
-    cv::transpose(img, out);
+    cv::transpose(img, t);
+    cv::resize(t, out, Size(t.cols / 2, t.rows / 2));
     cv::cvtColor(out, grey, CV_RGB2GRAY);
 
     std::vector<KeyPoint> keypoints;
-    detector->detect(grey, keypoints);
-
     Mat descriptors;
-    extractor->compute(grey, keypoints, descriptors);
+
+    detector->detect(grey, keypoints);
+    extractor.compute(grey, keypoints, descriptors);
+
     vector<Vector2d> normed_points;
     Vector2d scale;
     scale[0] = out.cols;
@@ -585,23 +623,20 @@ int main(int argc, char*argv[]) {
 
     UpdateMap(&map, frame, normed_points, descriptors);
 
-    for (auto& dp : map.descs) {
-      if (dp.point_ref >= 0)
+    for (const auto& point : map.points) {
+      if (point.last_frame() != frame)
         continue;
-      if ((frame - dp.last_frame) > 5)
+      if (point.num_observations() == 1) {
+        DrawCross(&out, point.last_point(), 2, Scalar(0,255,0));
         continue;
-      DrawCross(&out, dp.last_point, 2, Scalar(0,255,0));
-    }
-
-    for (const Observation& o : map.obs) {
-      if (o.frame_ref != frame)
-        continue;
-      DrawCross(&out, o.pt, 5, Scalar(0,0,255));
-
-      for (auto x = &o; x->prev_obs >= 0 ; x = &(map.obs[x->prev_obs])) {
-        auto px = &(map.obs[x->prev_obs]);
-        DrawLine(&out, x->pt, px->pt, Scalar(0,0,0));
       }
+      int num = point.observations_.size();
+      for (int i = 0; i < (num - 1); ++i) {
+
+        DrawLine(&out, point.observations_[i].pt,
+            point.observations_[i+1].pt, Scalar(0,0,0));
+      }
+      DrawCross(&out, point.last_point(), 5, Scalar(0,0,255));
     }
 
     cv::imshow( "Display window", out);
@@ -613,10 +648,10 @@ int main(int argc, char*argv[]) {
       mod = 15;
 
     if ((frame%mod) == 0) {
-      RunSlam(&map, frame - mod);
+      //  RunSlam(&map, frame - mod);
       //DumpMap(&map);
-      RunSlam(&map, -1);
-      DumpMap(&map);
+      // RunSlam(&map, -1);
+      //  DumpMap(&map);
       cv::waitKey(0);
     }
 
