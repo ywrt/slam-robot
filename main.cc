@@ -221,7 +221,7 @@ struct LocalMap {
 
 Vector2d fposToVector(const FPos& fp) {
   Vector2d r;
-  r << fp.x, fp.y;
+  r << fp.x * 2 - 1, fp.y * 2 - 1;
   return r;
 }
 
@@ -602,33 +602,12 @@ void DumpMap(LocalMap* map) {
       map->camera.data[2]);
 }
 
-void DrawCross(cv::Mat* out, const Vector2d& point, int size, Scalar color) {
-  Point2f a(
-      (point(0) + 1)/2 * out->cols,
-      (point(1) + 1)/2 * out->rows);
-  line(*out, a - Point2f(size,size), a + Point2f(size,size), color, 1, 8);
-  line(*out, a - Point2f(size,-size), a + Point2f(size,-size), color, 1, 8);
-}
-
-void DrawLine(cv::Mat* out,
-    const Vector2d& from,
-    const Vector2d& to,
-    Scalar color) {
-  Point2f a(
-      (from(0) + 1)/2 * out->cols,
-      (from(1) + 1)/2 * out->rows);
-  Point2f b(
-      (to(0) + 1)/2 * out->cols,
-      (to(1) + 1)/2 * out->rows);
-  line(*out, a, b, color, 1, 8);
-}
-
 struct  ImageProc {
   ImageProc() :
     curr(new OctaveSet),
     prev(new OctaveSet) {}
 
-  void computeHomography(const Frame& f1, const Frame& f2, Matrix3d* homog) {
+  void ComputeHomography(const Frame& f1, const Frame& f2, Matrix3d* homog) {
     Matrix3d rotate;
     rotate = f2.rotation_ * f1.rotation_.inverse();
 
@@ -649,7 +628,7 @@ struct  ImageProc {
         AngleAxisd(M_PI/2, Vector3d::UnitZ());
   }
 
-  Vector2d computePoint(
+  Vector2d ComputePoint(
       const Vector2d& point,
       const Matrix3d& homog) {
     Vector3d v;
@@ -661,7 +640,7 @@ struct  ImageProc {
     return v.block<2,1>(0,0);
   }
 
-  int update_corners(LocalMap* map, int frame) {
+  int UpdateCorners(LocalMap* map, int frame) {
     Matrix3d homography[3];
 
     for (int i = 0; i < 3; ++i) {
@@ -669,7 +648,7 @@ struct  ImageProc {
         continue;
       const Frame& f2 = map->frames[frame];
       const Frame& f1 = map->frames[frame - i - 1];
-      computeHomography(f1, f2, &homography[i]);
+      ComputeHomography(f1, f2, &homography[i]);
     }
     //homog_from_poses(prev->pose(), curr->pose(), &homography);
 
@@ -680,12 +659,12 @@ struct  ImageProc {
       CHECK_GE(frame - point.last_frame() - 1, 0);
       const Matrix3d& homog = homography[frame - point.last_frame() - 1];
 
-      Vector2d location = computePoint(point.last_point(), homog);
+      Vector2d location = ComputePoint(point.last_point(), homog);
       Vector2d lp = point.last_point();
       FPos prev_fp(lp(0), lp(1));
       FPos curr_fp(location(0), location(1));
 
-      FPos fp = curr->updatePosition(*prev, prev_fp, curr_fp);
+      FPos fp = curr->UpdatePosition(*prev, prev_fp, curr_fp);
       if (fp.isInvalid())
         continue;
 
@@ -698,29 +677,31 @@ struct  ImageProc {
     return 0;
   }
 
-  void refresh_corners(LocalMap* map, int frame, OctaveSet* image) {
+  void RefreshCorners(LocalMap* map, int frame) {
+    printf("RefreshCorners\n");
     // Mask out areas where we already have corners.
     int to_find = 40;
     for (auto& point : map->points) {
       if (point.last_frame() != frame)
         continue;
       FPos lp(point.last_point()(0), point.last_point()(1));
-      image->set_known_corner(lp);
-      // TODO: decrement to_find if this grid spot was previously unused.
+      if (!curr->set_known_corner(lp))
+        --to_find;
     }
 
     if (to_find <= 0)
       return;
-
-    for (FPos fp = image->find_first_corner();
+    printf("Search for %d points\n", to_find);
+    for (FPos fp = curr->find_first_corner();
         fp.x >= 0;
-        fp = image->find_next_corner()) {
+        fp = curr->find_next_corner()) {
+      printf("%f,%f\n", fp.x, fp.y);
       map->points.push_back(TrackedPoint());
 
       TrackedPoint& point = map->points.back();
       Observation o;
       o.frame_ref = frame;
-      o.pt = fp;
+      o.pt = fposToVector(fp);
       point.observations_.push_back(o);
     }
 
@@ -729,9 +710,13 @@ struct  ImageProc {
 
 
   void ProcessFrame(const Mat& mat, int frame, LocalMap* map) {
-    curr->fill((uint8_t*)mat.data, mat.cols, mat.rows);
+    curr->FillOctaves((uint8_t*)mat.data, mat.cols, mat.rows);
     // fill_pose(cimage->pose());
-    update_corners(map, frame);
+
+    //UpdateCorners(map, frame);
+
+    RefreshCorners(map, frame);
+    flip();
   }
 
   void flip() {
@@ -744,6 +729,27 @@ struct  ImageProc {
   OctaveSet* prev;
 };
 
+
+void DrawCross(cv::Mat* out, const Vector2d& point, int size, Scalar color) {
+  Point2f a(
+      (point(0) + 1)/2 * out->cols,
+      (point(1) + 1)/2 * out->rows);
+  line(*out, a - Point2f(size,size), a + Point2f(size,size), color, 1, 8);
+  line(*out, a - Point2f(size,-size), a + Point2f(size,-size), color, 1, 8);
+}
+
+void DrawLine(cv::Mat* out,
+    const Vector2d& from,
+    const Vector2d& to,
+    Scalar color) {
+  Point2f a(
+      (from(0) + 1)/2 * out->cols,
+      (from(1) + 1)/2 * out->rows);
+  Point2f b(
+      (to(0) + 1)/2 * out->cols,
+      (to(1) + 1)/2 * out->rows);
+  line(*out, a, b, color, 1, 8);
+}
 
 
 int main(int argc, char*argv[]) {
@@ -770,6 +776,7 @@ int main(int argc, char*argv[]) {
   int frame = -1;
 
   LocalMap map;
+  ImageProc proc;
 
   while (vid.read(img)) {
     frame++;
@@ -799,7 +806,9 @@ int main(int argc, char*argv[]) {
 
     map.addFrame(frame);
 
-    UpdateMap(&map, frame, normed_points, descriptors);
+    proc.ProcessFrame(grey, frame, &map);
+
+    //UpdateMap(&map, frame, normed_points, descriptors);
 
     for (const auto& point : map.points) {
       if (point.last_frame() != frame)

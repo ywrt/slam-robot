@@ -12,6 +12,7 @@
 #include <string.h>
 
 #include "imgtypes.h"
+#include "region.h"
 
 extern const uint8_t guass_weights[];
 

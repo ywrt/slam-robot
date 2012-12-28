@@ -8,6 +8,8 @@
 #ifndef OCTAVESET_H_
 #define OCTAVESET_H_
 #include <stdint.h>
+#include "imgtypes.h"
+#include "region.h"
 
 class Octave;
 
@@ -38,12 +40,12 @@ public:
   OctaveSet();
   ~OctaveSet();
 
-  void fill(uint8_t* data, int width, int height);
+  void FillOctaves(uint8_t* data, int width, int height);
 
   void fillPatchSet(const FPos& fp, PatchSet* patch) const;
 
-  FPos updatePosition(const OctaveSet& pimage, const FPos& pos, const FPos& ppos) const;
-  FPos updatePosition(const PatchSet& ps, const FPos& pos) const;
+  FPos UpdatePosition(const OctaveSet& pimage, const FPos& pos, const FPos& ppos) const;
+  FPos UpdatePosition(const PatchSet& ps, const FPos& pos) const;
   const float* pose() const { return pose_; };
   float* pose() { return pose_; };
   Pos pos0(const FPos& fp) const;
@@ -55,7 +57,8 @@ public:
   // Reset the first, and return the next corner.
   FPos find_first_corner();
   // Mask out areas of the integral image as known corners.
-  void set_known_corner(const FPos& corner);
+  // Returns true if this corner was already known.
+  bool set_known_corner(const FPos& corner);
 };
 
 

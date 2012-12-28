@@ -10,7 +10,18 @@
 #endif
 #include "util.h"
 #include "octave.h"
+#include <stdio.h>
 
+const uint8_t guass_weights[] = {
+    4,   6,   9,  11,  11,   9,   6,   4,
+    6,  11,  15,  18,  18,  15,  11,   6,
+    9,  15,  21,  25,  25,  21,  15,   9,
+   11,  18,  25,  30,  30,  25,  18,  11,
+   11,  18,  25,  30,  30,  25,  18,  11,
+    9,  15,  21,  25,  25,  21,  15,   9,
+    6,  11,  15,  18,  18,  15,  11,   6,
+    4,   6,   9,  11,  11,   9,   6,   4,
+};
 
 #ifdef NEON
 // Fixed size 8x8 scoring. uses neon intrinsics for some sembalance of speed.
@@ -212,17 +223,15 @@ FPos Octave::searchPosition(const FPos &fp,
 
   int best = (1<<30);
   Pos best_pos(-1, -1);
-  for (int py = ll.y ; py <= ur.y; ++py) {
-    for (int px = ll.x ; px <= ur.x; ++px) {
-      //int sum = scorePosition(octave, patch, px, py, best);
-      int sum = Score(patch, Pos(px, py));
-      if (Pos(px, py) == p)
-        sum--;
-      if (sum > best)
-        continue;
-      best = sum;
-      best_pos = Pos(px, py);
-    }
+  for (auto& point : Region(ll, ur)) {
+    //int sum = scorePosition(octave, patch, px, py, best);
+    int sum = Score(patch, point);
+    if (point == p)
+      sum--;
+    if (sum > best)
+      continue;
+    best = sum;
+    best_pos = point;
   }
   //  LOG("Search moved from (%d,%d) to (%d,%d) sum %d\n",
   //      ix, iy, best_x, best_y, best);
@@ -247,17 +256,15 @@ int Octave::scoreCorner(const Pos& pos) const {
   int gxx = 0;
   int gyy = 0;
   int gxy = 0;
-  for (int dy = 0; dy < 5 ; ++dy) {
-    for (int dx = 0 ; dx < 5 ; ++dx) {
-      int p = dy * width + dx;
-      int w = weights[dx+dy*5];
-      int dxx = (int(ptr[p+1])-int(ptr[p-1]));
-      int dyy = (int(ptr[p+width])-int(ptr[p-width]));
+  for (auto& point : Region(4,4)) {
+    int p = point.y * width + point.x;
+    int w = weights[point.x+point.y*5];
+    int dxx = (int(ptr[p+1])-int(ptr[p-1]));
+    int dyy = (int(ptr[p+width])-int(ptr[p-width]));
 
-      gxx += w*dxx*dxx;
-      gyy += w*dyy*dyy;
-      gxy += w*dxx*dyy;
-    }
+    gxx += w*dxx*dxx;
+    gyy += w*dyy*dyy;
+    gxy += w*dxx*dyy;
   }
 
   int64_t d = (int64_t)gxx*gyy-gxy*gxy;
@@ -270,6 +277,7 @@ int Octave::scoreCorner(const Pos& pos) const {
   if (score < 0)
     score = 0;
   score /= 65536;
+
   return score;
 }
 

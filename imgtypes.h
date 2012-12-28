@@ -52,24 +52,18 @@ inline Pos operator - (const Pos& pos, const Pos& a) {
   r.y -= a.y;
   return r;
 }
+inline Pos operator * (const Pos& pos, int a) {
+  Pos r(pos);
+  r.x *= a;
+  r.y *= a;
+  return r;
+}
 inline  bool operator == (const Pos& a, const Pos& b) {
   return a.x == b.x && a.y == b.y;
 }
 inline  bool operator != (const Pos& a, const Pos& b) {
   return !(a == b);
 }
-
-template<typename T>
-struct RegionGeneric {
- T ll;
- T ur;
-
- RegionGeneric(const T& thell, const T& theur) :
-   ll(thell), ur(theur) {}
-};
-
-typedef RegionGeneric<Pos> Region;
-typedef RegionGeneric<FPos> FRegion;
 
 
 #endif

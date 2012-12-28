@@ -28,7 +28,7 @@ OctaveSet::~OctaveSet() {
   delete octave0_;
 }
 
-void OctaveSet::fill(uint8_t* data, int width, int height) {
+void OctaveSet::FillOctaves(uint8_t* data, int width, int height) {
   octave0_->copy((uint8_t*)data, width, height); // 2ms
   octave1_->fill(*octave0_);  // 6 ms
   octave2_->fill(*octave1_);  // 1 ms
@@ -50,7 +50,7 @@ void OctaveSet::fillPatchSet(const FPos& fp, PatchSet* ps) const {
 // 'pos' is the estimated position in the current OctaveSet needing
 // refinement.
 // 'ps' is a patchset to search for.
-FPos OctaveSet::updatePosition(const PatchSet& ps,
+FPos OctaveSet::UpdatePosition(const PatchSet& ps,
     const FPos& pos) const {
   FPos fp(pos);
 
@@ -67,14 +67,14 @@ FPos OctaveSet::updatePosition(const PatchSet& ps,
 // 'pos' is the estimated position in the current octaveset needing
 // refinement.
 // 'ppos' is the known position in the previous 'pimage' octaveset
-FPos OctaveSet::updatePosition(const OctaveSet& pimage,
+FPos OctaveSet::UpdatePosition(const OctaveSet& pimage,
     const FPos& pos, const FPos& ppos) const {
   uint8_t patch[64];
   FPos fp(pos);
   if (!pimage.octave3_->contains_fpos(ppos, Octave::patch_radius)) {
     Pos p = octave3_->pos(ppos);
     LOG("Out of image fail %d,%d.\n", p.x, p.y);
-    return Fpos::invalid();
+    return FPos::invalid();
   }
   int suma;
   pimage.octave3_->fillScale(patch, ppos);
@@ -92,7 +92,7 @@ FPos OctaveSet::updatePosition(const OctaveSet& pimage,
   if (!octave3_->contains_fpos(fp, Octave::patch_radius)) {
     Pos p = octave3_->pos(fp);
     LOG("Out of image fail %d,%d.\n", p.x, p.y);
-    return Fpos::invalid();
+    return FPos::invalid();
   }
   octave3_->fillScale(patch, fp);
   rfp = pimage.octave3_->searchPosition(rfp, patch, 2, &sumb);
@@ -127,17 +127,15 @@ FPos OctaveSet::updatePosition(const OctaveSet& pimage,
 FPos OctaveSet::searchBestCorner(const FRegion& freg) const {
   Region reg(octave3_->clipped_region(freg, 3));
 
-  int min_score = 500000;
+  int min_score = 5000;
   int best_score = 0;
   Pos best_pos;
-  for (int y = reg.ll.y; y < reg.ur.y; y ++) {
-      for (int x = reg.ll.x; x < reg.ur.x; x ++) {
-        int score = octave3_->scoreCorner(Pos(x,y));
-        if (score < best_score)
-          continue;
-        best_score = score;
-        best_pos = Pos(x,y);
-      }
+  for (auto& p : reg) {
+    int score = octave3_->scoreCorner(p);
+    if (score < best_score)
+      continue;
+    best_score = score;
+    best_pos = p;
   }
 
   if (best_score < min_score)
@@ -145,65 +143,53 @@ FPos OctaveSet::searchBestCorner(const FRegion& freg) const {
   min_score /= 2;
 
   // Use the factor that the octave are 2x apart.
-  Pos ll(best_pos + best_pos - 1);
-  Pos ur(best_pos + best_pos + 1);
   best_score = 0;
-  for (int y = ll.y; y < ur.y; y ++) {
-    for (int x = ll.x; x < ur.x; x ++) {
-      int score = octave2_->scoreCorner(Pos(x,y));
-      if (score < best_score)
-        continue;
-      best_score = score;
-      best_pos = Pos(x,y);
-    }
+  for (auto& p : Region(best_pos * 2 - 1, best_pos * 2 + 1)) {
+    int score = octave2_->scoreCorner(p);
+    if (score < best_score)
+      continue;
+    best_score = score;
+    best_pos = p;
   }
   if (best_score < min_score)
     return FPos::invalid();
   min_score /= 2;
 
   // Use the factor that the octave are 2x apart.
-  ll = Pos(best_pos + best_pos - 1);
-  ur = Pos(best_pos + best_pos + 1);
   best_score = 0;
-  for (int y = ll.y; y < ur.y; y ++) {
-    for (int x = ll.x; x < ur.x; x ++) {
-      int score = octave1_->scoreCorner(Pos(x,y));
-      if (score < best_score)
-        continue;
-      best_score = score;
-      best_pos = Pos(x,y);
-    }
+  for (auto& p : Region(best_pos * 2 - 1, best_pos * 2 + 1)) {
+    int score = octave1_->scoreCorner(p);
+    if (score < best_score)
+      continue;
+    best_score = score;
+    best_pos = p;
+
   }
   if (best_score < min_score)
     return FPos::invalid();
   min_score /= 2;
 
-
-  // Use the factor that the octave are 2x apart.
-  ll = Pos(best_pos + best_pos - 1);
-  ur = Pos(best_pos + best_pos + 1);
   best_score = 0;
-  for (int y = ll.y; y < ur.y; y ++) {
-    for (int x = ll.x; x < ur.x; x ++) {
-      int score = octave0_->scoreCorner(Pos(x,y));
-      if (score < best_score)
-        continue;
-      best_score = score;
-      best_pos = Pos(x,y);
-    }
+  for (auto& p : Region(best_pos * 2 - 1, best_pos * 2 + 1)) {
+    int score = octave0_->scoreCorner(p);
+    if (score < best_score)
+      continue;
+    best_score = score;
+    best_pos = p;
+
   }
   if (best_score < min_score)
     return FPos::invalid();
-  min_score /= 2;
 
-  //LOG("pos (%d,%d) => (%d,%d) => %d\n", sx, sy,
-  //    best_pos.x, best_pos.y, best_score);
+
+  LOG("(%d,%d) => %d\n",
+      best_pos.x, best_pos.y, best_score);
 
   FPos fp(octave0_->fpos(best_pos));
   return fp;
 }
 
-
+// TODO: Move this grid search out into different class.
 // Reset the first, and return the next corner.
 FPos OctaveSet::find_first_corner() {
   search_x_ = 0;
@@ -228,18 +214,22 @@ FPos OctaveSet::find_next_corner() {
       search_x_ = 0;
       ++search_y_;
     }
-    if (fp.x != -1)
-      return fp;
+    if (fp.isInvalid())
+      continue;
+    break;
   }
-  return FPos::invalid();
+  return fp;
 }
 
 // Mask out areas of the integral image as known corners.
-void OctaveSet::set_known_corner(const FPos& corner) {
+bool OctaveSet::set_known_corner(const FPos& corner) {
   Pos p(corner.x * (kSectors+2), corner.y * (kSectors+2));
   if (p.x == 0 || p.y == 0)
-    return;
+    return true;
   if (p.x >= kSectors || p.y >= kSectors)
-    return;
+    return true;
+  if (mask_[p.x + p.y*kSectors])
+    return true;
   mask_[p.x + p.y*kSectors] = 1;
+  return false;
 }
