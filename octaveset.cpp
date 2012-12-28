@@ -74,7 +74,7 @@ FPos OctaveSet::updatePosition(const OctaveSet& pimage,
   if (!pimage.octave3_->contains_fpos(ppos, Octave::patch_radius)) {
     Pos p = octave3_->pos(ppos);
     LOG("Out of image fail %d,%d.\n", p.x, p.y);
-    return FPos(-1, -1);
+    return Fpos::invalid();
   }
   int suma;
   pimage.octave3_->fillScale(patch, ppos);
@@ -92,7 +92,7 @@ FPos OctaveSet::updatePosition(const OctaveSet& pimage,
   if (!octave3_->contains_fpos(fp, Octave::patch_radius)) {
     Pos p = octave3_->pos(fp);
     LOG("Out of image fail %d,%d.\n", p.x, p.y);
-    return FPos(-1, -1);
+    return Fpos::invalid();
   }
   octave3_->fillScale(patch, fp);
   rfp = pimage.octave3_->searchPosition(rfp, patch, 2, &sumb);
@@ -115,7 +115,7 @@ FPos OctaveSet::updatePosition(const OctaveSet& pimage,
         (fwd.x - rev.x), (fwd.y - rev.y),
         rfp.x, rfp.y);
 #endif
-    return FPos(-1,-1);
+    return FPos::invalid();
   }
 
   //LOG("sum %5d %5d : %d,%d\n", suma, sumb, delta.x, delta.y);
@@ -124,11 +124,7 @@ FPos OctaveSet::updatePosition(const OctaveSet& pimage,
 
 
 
-FPos OctaveSet::check_for_corner(int sx, int sy) const {
-  FRegion freg(
-      FPos(float(sx+1)/(kSectors+2), float(sy+1)/(kSectors+2)),
-      FPos(float(sx+2)/(kSectors+2), float(sy+2)/(kSectors+2)));
-
+FPos OctaveSet::searchBestCorner(const FRegion& freg) const {
   Region reg(octave3_->clipped_region(freg, 3));
 
   int min_score = 500000;
@@ -145,7 +141,7 @@ FPos OctaveSet::check_for_corner(int sx, int sy) const {
   }
 
   if (best_score < min_score)
-    return FPos(-1,-1);
+    return FPos::invalid();
   min_score /= 2;
 
   // Use the factor that the octave are 2x apart.
@@ -162,7 +158,7 @@ FPos OctaveSet::check_for_corner(int sx, int sy) const {
     }
   }
   if (best_score < min_score)
-    return FPos(-1,-1);
+    return FPos::invalid();
   min_score /= 2;
 
   // Use the factor that the octave are 2x apart.
@@ -179,7 +175,7 @@ FPos OctaveSet::check_for_corner(int sx, int sy) const {
     }
   }
   if (best_score < min_score)
-    return FPos(-1,-1);
+    return FPos::invalid();
   min_score /= 2;
 
 
@@ -197,7 +193,7 @@ FPos OctaveSet::check_for_corner(int sx, int sy) const {
     }
   }
   if (best_score < min_score)
-    return FPos(-1,-1);
+    return FPos::invalid();
   min_score /= 2;
 
   //LOG("pos (%d,%d) => (%d,%d) => %d\n", sx, sy,
@@ -217,9 +213,15 @@ FPos OctaveSet::find_first_corner() {
 
 // While there's areas left to be searched, search for a corner.
 FPos OctaveSet::find_next_corner() {
-  FPos fp(-1,-1);
+  FPos fp(FPos::invalid());
   while ( search_y_ < kSectors) {
-    fp = check_for_corner(search_x_, search_y_);
+    int sx = search_x_;
+    int sy = search_y_;
+    FRegion freg(
+        FPos(float(sx+1)/(kSectors+2), float(sy+1)/(kSectors+2)),
+        FPos(float(sx+2)/(kSectors+2), float(sy+2)/(kSectors+2)));
+
+    fp = searchBestCorner(freg);
 
     ++search_x_;
     if (search_x_ >= kSectors) {
@@ -229,7 +231,7 @@ FPos OctaveSet::find_next_corner() {
     if (fp.x != -1)
       return fp;
   }
-  return FPos(-1,-1);
+  return FPos::invalid();
 }
 
 // Mask out areas of the integral image as known corners.

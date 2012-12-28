@@ -219,6 +219,11 @@ struct LocalMap {
   vector<Observation> obs;
 };
 
+Vector2d fposToVector(const FPos& fp) {
+  Vector2d r;
+  r << fp.x, fp.y;
+  return r;
+}
 
 void Project(
     const Camera& camera,
@@ -681,7 +686,7 @@ struct  ImageProc {
       FPos curr_fp(location(0), location(1));
 
       FPos fp = curr->updatePosition(*prev, prev_fp, curr_fp);
-      if (fp.invalid())
+      if (fp.isInvalid())
         continue;
 
       Observation o;
@@ -699,7 +704,8 @@ struct  ImageProc {
     for (auto& point : map->points) {
       if (point.last_frame() != frame)
         continue;
-      image->set_known_corner(point.last_point());
+      FPos lp(point.last_point()(0), point.last_point()(1));
+      image->set_known_corner(lp);
       // TODO: decrement to_find if this grid spot was previously unused.
     }
 

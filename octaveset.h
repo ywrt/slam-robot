@@ -49,7 +49,7 @@ public:
   Pos pos0(const FPos& fp) const;
 
 
-  FPos check_for_corner(int sx, int sy) const;
+  FPos searchBestCorner(const FRegion& region) const;
   // While there's areas left to be searched, search for a corner.
   FPos find_next_corner();
   // Reset the first, and return the next corner.

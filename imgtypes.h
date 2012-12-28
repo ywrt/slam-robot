@@ -8,7 +8,8 @@ struct FPos {
   inline FPos(double a, double b) : x(a), y(b) {}
   inline FPos(int a, int b) : x(float(a)), y(float(b)) {}
   inline FPos() : x(0), y(0) { }
-  bool invalid() { return x <= -1 && y <= -1; }
+  bool isInvalid() { return x <= -1 && y <= -1; }
+  static FPos invalid() { return FPos(-2, -2); }
 };
 inline FPos operator + (const FPos& pos, const FPos& a) {
   FPos r(pos);
