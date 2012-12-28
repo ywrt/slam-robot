@@ -2,6 +2,8 @@
 #include <stdlib.h>
 #include <stdint.h>
 
+
+
 #include "opencv2/opencv.hpp"
 #include "opencv2/core/core.hpp"
 #include "opencv2/features2d/features2d.hpp"
@@ -15,6 +17,10 @@
 #include <map>
 
 #include <eigen3/Eigen/Eigen>
+
+#include "imgtypes.h"
+#include "octaveset.h"
+
 
 using namespace std;
 using namespace cv;
@@ -82,12 +88,12 @@ struct Frame {
     rotation_ {1,0,0,0},
     translation_ {0,0,10} {}
 
-    double* rotation() { return rotation_.data(); }
+    double* rotation() { return rotation_.coeffs().data(); }
     double* translation() { return translation_.data(); }
-    const double* rotation() const { return rotation_.data(); }
+    const double* rotation() const { return rotation_.coeffs().data(); }
     const double* translation() const { return translation_.data(); }
 
-    Vector4d rotation_;
+    Quaterniond rotation_;
     Vector3d translation_;
     // 0,1,2,3 == Quaternion
     // 4,5,6 == Camera translation
@@ -134,13 +140,6 @@ struct Descriptor {
   uint32_t data[16];
 };
 
-// A patch from a particular frame.
-// Used for accurate cross-frame matching.
-struct Patch {
-  Vector2d pt;
-  uint8_t data[64];
-  int frame_ref;
-};
 
 // A fully tracked point.
 // Has the location in world-space, the descriptors, and any
@@ -184,10 +183,36 @@ struct TrackedPoint {
     Vector4d location_;  // Homogeneous location in world.
     vector<Observation> observations_;
     vector<Descriptor> descriptors_;
+    vector<Patch> patches_;
     bool bad_;
 };
 
+// Description of the known world.
 struct LocalMap {
+
+  void addFrame(int frame_num) {
+    CHECK_EQ(frames.size(), frame_num);
+
+    if (frames.size() > 3) {
+      auto s = frames.size();
+      auto& f1 = frames[s - 1];
+      auto& f2 = frames[s - 2];
+      Vector3d motion = f1.translation_ - f2.translation_;
+      if (motion.norm() > 1)
+        motion /= motion.norm();
+
+      Frame f = f1;
+      f.translation_ += motion;
+      frames.push_back(f);
+    } else if (frames.size() > 0) {
+      frames.push_back(frames.back());
+      frames.back().translation()[0] += 0.1;
+    } else {
+      frames.push_back(Frame());
+    }
+
+  }
+
   Camera camera;
   vector<Frame> frames;
   vector<TrackedPoint> points;
@@ -208,7 +233,44 @@ void Project(
       result);
 }
 
+// Eigen compatible quaternion parameterization
+class QuaternionParameterization : public ceres::LocalParameterization {
+public:
+  virtual ~QuaternionParameterization() {}
+  virtual int GlobalSize() const { return 4; }
+  virtual int LocalSize() const { return 3; }
+  virtual bool Plus(
+      const double* x,
+      const double* delta,
+      double* x_plus_delta) const {
+    Map<const Quaterniond> mx(x);
+    Map<const Vector3d> mdelta(delta);
+    Map<Quaterniond> mx_plus_delta(x_plus_delta);
+    const double norm_delta = mdelta.norm();
+    if (norm_delta > 0.0) {
+      const double sin_delta_by_delta = (sin(norm_delta) / norm_delta);
 
+      Quaterniond q_delta;
+      q_delta.vec() = sin_delta_by_delta * mdelta;
+      q_delta.w() = cos(norm_delta);
+
+      mx_plus_delta = q_delta * mx;
+    } else {
+      mx_plus_delta = mx;
+    }
+    return true;
+  }
+  virtual bool ComputeJacobian(const double* x, double* jacobian) const {
+    jacobian[0] = -x[0]; jacobian[1]  = -x[1]; jacobian[2]  = -x[2];  // NOLINT
+    jacobian[3] =  x[3]; jacobian[4]  =  x[2]; jacobian[5]  = -x[1];  // NOLINT
+    jacobian[6] = -x[2]; jacobian[7]  =  x[3]; jacobian[8]  =  x[0];  // NOLINT
+    jacobian[9] =  x[1]; jacobian[10] = -x[0]; jacobian[11] =  x[3];  // NOLINT
+    return true;
+  }
+};
+
+
+// Parameterization of homogeneous coordinates in R^3.
 class HomogenousParameterization : public ceres::LocalParameterization {
 public:
   virtual ~HomogenousParameterization() {}
@@ -279,7 +341,7 @@ void RunSlam(LocalMap* map, int min_frame_to_solve) {
       CHECK_GE(o.frame_ref, 0);
       CHECK_LT(o.frame_ref, map->frames.size());
 
-      // Each Residual block takes a point and a camera as input and outputs a 2
+      // Each residual block takes a point and a camera as input and outputs a 2
       // dimensional residual. Internally, the cost function stores the observed
       // image location and compares the reprojection against the observation.
       ceres::CostFunction* cost_function =
@@ -388,25 +450,7 @@ void UpdateMap(LocalMap* map,
     const Mat& descriptors) {
 
   CHECK_EQ(key_points.size(), descriptors.rows);
-  CHECK_EQ(map->frames.size(), frame);
 
-  if (map->frames.size() > 3) {
-    auto s = map->frames.size();
-    auto& f1 = map->frames[s - 1];
-    auto& f2 = map->frames[s - 2];
-    Vector3d motion = f1.translation_ - f2.translation_;
-    if (motion.norm() > 1)
-      motion /= motion.norm();
-
-    Frame f = f1;
-    f.translation_ += motion;
-    map->frames.push_back(f);
-  } else if (map->frames.size() > 0) {
-    map->frames.push_back(map->frames.back());
-    map->frames.back().translation()[0] += 0.1;
-  } else {
-    map->frames.push_back(Frame());
-  }
 
   int hist[512] = {0,};
 
@@ -574,6 +618,127 @@ void DrawLine(cv::Mat* out,
   line(*out, a, b, color, 1, 8);
 }
 
+struct  ImageProc {
+  ImageProc() :
+    curr(new OctaveSet),
+    prev(new OctaveSet) {}
+
+  void computeHomography(const Frame& f1, const Frame& f2, Matrix3d* homog) {
+    Matrix3d rotate;
+    rotate = f2.rotation_ * f1.rotation_.inverse();
+
+    Vector3d translate;
+    translate = f2.translation_ - f1.translation_;
+    // translate *= focal_length;
+
+    // Now we have camera 1 pointed directly along the Z axis at the
+    // origin, and the position(t)+rotation(R) of camera2 w.r.t camera1
+    // The homography is thus R + (t*n')/f where n' =[0;0;-1] aka the
+    // direction from the projection plane to the camera, and 'f'
+    // is the distance from the projection plane to the camera aka
+    // the focal length.
+    rotate.block<3,1>(0,2) -= translate;
+
+    *homog = AngleAxisd(-M_PI/2, Vector3d::UnitZ()) *
+        rotate *
+        AngleAxisd(M_PI/2, Vector3d::UnitZ());
+  }
+
+  Vector2d computePoint(
+      const Vector2d& point,
+      const Matrix3d& homog) {
+    Vector3d v;
+    v.block<2,1>(0,0) = point;
+    v(2) = 1;
+
+    v = homog * v;
+    v.block<2,1>(0,0) /= v(2);
+    return v.block<2,1>(0,0);
+  }
+
+  int update_corners(LocalMap* map, int frame) {
+    Matrix3d homography[3];
+
+    for (int i = 0; i < 3; ++i) {
+      if (frame >= i)
+        continue;
+      const Frame& f2 = map->frames[frame];
+      const Frame& f1 = map->frames[frame - i - 1];
+      computeHomography(f1, f2, &homography[i]);
+    }
+    //homog_from_poses(prev->pose(), curr->pose(), &homography);
+
+    for (auto& point : map->points) {
+      if ((point.last_frame() - frame) > 3)
+        continue;
+      CHECK_LT(frame - point.last_frame() - 1, 3);
+      CHECK_GE(frame - point.last_frame() - 1, 0);
+      const Matrix3d& homog = homography[frame - point.last_frame() - 1];
+
+      Vector2d location = computePoint(point.last_point(), homog);
+      Vector2d lp = point.last_point();
+      FPos prev_fp(lp(0), lp(1));
+      FPos curr_fp(location(0), location(1));
+
+      FPos fp = curr->updatePosition(*prev, prev_fp, curr_fp);
+      if (fp.invalid())
+        continue;
+
+      Observation o;
+      o.frame_ref = frame;
+      o.pt(0) = fp.x;
+      o.pt(1) = fp.y;
+      point.observations_.push_back(o);
+    }
+    return 0;
+  }
+
+  void refresh_corners(LocalMap* map, int frame, OctaveSet* image) {
+    // Mask out areas where we already have corners.
+    int to_find = 40;
+    for (auto& point : map->points) {
+      if (point.last_frame() != frame)
+        continue;
+      image->set_known_corner(point.last_point());
+      // TODO: decrement to_find if this grid spot was previously unused.
+    }
+
+    if (to_find <= 0)
+      return;
+
+    for (FPos fp = image->find_first_corner();
+        fp.x >= 0;
+        fp = image->find_next_corner()) {
+      map->points.push_back(TrackedPoint());
+
+      TrackedPoint& point = map->points.back();
+      Observation o;
+      o.frame_ref = frame;
+      o.pt = fp;
+      point.observations_.push_back(o);
+    }
+
+   // LOG("Now tracking %d corners\n", cset.access().num_valid());
+  }
+
+
+  void ProcessFrame(const Mat& mat, int frame, LocalMap* map) {
+    curr->fill((uint8_t*)mat.data, mat.cols, mat.rows);
+    // fill_pose(cimage->pose());
+    update_corners(map, frame);
+  }
+
+  void flip() {
+    auto t = curr;
+    curr = prev;
+    prev = t;
+  }
+
+  OctaveSet* curr;
+  OctaveSet* prev;
+};
+
+
 
 int main(int argc, char*argv[]) {
   if (argc < 2) {
@@ -625,6 +790,8 @@ int main(int argc, char*argv[]) {
       p = 1 - 2 * p.array() / scale.array();
       normed_points.push_back(p);
     }
+
+    map.addFrame(frame);
 
     UpdateMap(&map, frame, normed_points, descriptors);
 

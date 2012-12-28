@@ -11,6 +11,17 @@
 
 class Octave;
 
+struct Patch {
+  uint8_t data[64];
+};
+
+struct PatchSet {
+  Patch octave0;
+  Patch octave1;
+  Patch octave2;
+  Patch octave3;
+};
+
 
 class OctaveSet {
   static const int kSectors = 14;
@@ -29,7 +40,10 @@ public:
 
   void fill(uint8_t* data, int width, int height);
 
+  void fillPatchSet(const FPos& fp, PatchSet* patch) const;
+
   FPos updatePosition(const OctaveSet& pimage, const FPos& pos, const FPos& ppos) const;
+  FPos updatePosition(const PatchSet& ps, const FPos& pos) const;
   const float* pose() const { return pose_; };
   float* pose() { return pose_; };
   Pos pos0(const FPos& fp) const;

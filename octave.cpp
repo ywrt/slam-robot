@@ -174,7 +174,7 @@ void Octave::fillScale(uint8_t *patch, const FPos& fpos) const {
   }
 }
 
-int Octave::Score(uint8_t* patch, const Pos& pos) const {
+int Octave::Score(const uint8_t* patch, const Pos& pos) const {
   uint8_t* ptr = pixel_ptr(pos - int(patch_radius));
 
    const uint8_t* guass_ptr = guass_weights;
@@ -204,7 +204,7 @@ int Octave::Score(uint8_t* patch, const Pos& pos) const {
 // Search around a radius of the current position in this octave for the
 // best match for this patch.
 FPos Octave::searchPosition(const FPos &fp,
-    uint8_t* patch, int radius, int* bestptr) const {
+    const uint8_t* patch, int radius, int* bestptr) const {
   Pos p = pos(fp);
 
   Pos ll = clip_pos(p - radius, patch_radius);

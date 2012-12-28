@@ -5,8 +5,10 @@ struct FPos {
   float x;
   float y;
   inline FPos(float a, float b) : x(a), y(b) {}
+  inline FPos(double a, double b) : x(a), y(b) {}
   inline FPos(int a, int b) : x(float(a)), y(float(b)) {}
   inline FPos() : x(0), y(0) { }
+  bool invalid() { return x <= -1 && y <= -1; }
 };
 inline FPos operator + (const FPos& pos, const FPos& a) {
   FPos r(pos);

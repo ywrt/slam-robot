@@ -174,11 +174,11 @@ public:
   // Copy a patch from the given position in the octave.
   void fillScale_neon(uint8_t *patch, const FPos& fpos) const;
 
-  int Score(uint8_t* patch, const Pos& pos) const;
+  int Score(const uint8_t* patch, const Pos& pos) const;
   // Search around a radius of the current position in this octave for the
   // best match for this patch.
   FPos searchPosition(const FPos &fp,
-      uint8_t* patch, int radius, int* bestptr) const;
+      const uint8_t* patch, int radius, int* bestptr) const;
 
   // Compute the harris score for the image at this position.
   int scoreCorner(const Pos& pos) const;

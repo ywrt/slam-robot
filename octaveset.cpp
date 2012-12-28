@@ -40,6 +40,30 @@ Pos OctaveSet::pos0(const FPos& fp) const {
   return octave0_->pos(fp);
 }
 
+void OctaveSet::fillPatchSet(const FPos& fp, PatchSet* ps) const {
+  octave3_->fillScale(ps->octave3.data, fp);
+  octave2_->fillScale(ps->octave2.data, fp);
+  octave1_->fillScale(ps->octave1.data, fp);
+  octave0_->fillScale(ps->octave0.data, fp);
+}
+
+// 'pos' is the estimated position in the current OctaveSet needing
+// refinement.
+// 'ps' is a patchset to search for.
+FPos OctaveSet::updatePosition(const PatchSet& ps,
+    const FPos& pos) const {
+  FPos fp(pos);
+
+  int suma;
+  fp = octave3_->searchPosition(fp, ps.octave3.data, 2, &suma);
+  fp = octave2_->searchPosition(fp, ps.octave2.data, 2, &suma);
+  fp = octave1_->searchPosition(fp, ps.octave1.data, 2, &suma);
+  fp = octave0_->searchPosition(fp, ps.octave0.data, 2, &suma);
+
+  return fp;
+}
+
+
 // 'pos' is the estimated position in the current octaveset needing
 // refinement.
 // 'ppos' is the known position in the previous 'pimage' octaveset
