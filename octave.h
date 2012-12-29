@@ -82,8 +82,8 @@ public:
   // Convert pixel position to floating-point
   // position in [0,1]x[0,1]
   inline FPos fpos(const Pos& p) const {
-    float x = (float(p.x)+0.1f) / width_;
-    float y = (float(p.y)+0.1f) / height_;
+    float x = (float(p.x)+0.01f) / width_;
+    float y = (float(p.y)+0.01f) / height_;
     return FPos(x, y);
   }
 

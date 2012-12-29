@@ -18,13 +18,18 @@ struct RegionGeneric {
 typedef RegionGeneric<FPos> FRegion;
 
 // An iterable region.
-// The region extents from [ll, ur] inclusive.
 class Region {
 public:
+  // The region [ll, ur] inclusive.
   Region(const Pos& tll, const Pos& tur) :
     ll(tll), ur(tur) {}
+
+  // A region of width x height.
+  // Iterating yeilds the range [0, width) * [0, height)
   Region(int width, int height) :
-    ll(0,0), ur(width, height) {}
+    ll(0,0), ur(width - 1, height - 1) {}
+
+  // A null region.
   Region() :
     ll(0,0), ur(-1, -1) {}
 

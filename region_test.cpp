@@ -122,11 +122,11 @@ TEST_F(regionTest, Const) {
   Region r(3, 2);
   int loops = 0;
   for (auto& p : r) {
-    EXPECT_GT(4, p.x);
-    EXPECT_GT(3, p.y);
+    EXPECT_GT(3, p.x);
+    EXPECT_GT(2, p.y);
     ++loops;
   }
-  EXPECT_EQ(3*4, loops);
+  EXPECT_EQ(3*2, loops);
 }
 
 TEST_F(regionTest, EmptyRegion) {

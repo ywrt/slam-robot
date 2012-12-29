@@ -67,7 +67,7 @@ class Grid {
 
   // Return a region matching the grid sectors.
   Region region() const {
-    return Region(width_ - 1, height_ - 1);
+    return Region(width_, height_);
   }
 
   // Iterate over the unmarked grid sectors.

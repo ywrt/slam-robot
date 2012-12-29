@@ -222,7 +222,7 @@ FPos Octave::searchPosition(const FPos &fp,
   Pos ur = clip_pos(p + radius, patch_radius+1);
 
   int best = (1<<30);
-  Pos best_pos(-1, -1);
+  Pos best_pos(Pos::invalid());
   for (auto& point : Region(ll, ur)) {
     //int sum = scorePosition(octave, patch, px, py, best);
     int sum = Score(patch, point);
@@ -256,7 +256,7 @@ int Octave::scoreCorner(const Pos& pos) const {
   int gxx = 0;
   int gyy = 0;
   int gxy = 0;
-  for (auto& point : Region(4,4)) {
+  for (auto& point : Region(5,5)) {
     int p = point.y * width + point.x;
     int w = weights[point.x+point.y*5];
     int dxx = (int(ptr[p+1])-int(ptr[p-1]));

@@ -29,6 +29,7 @@ struct Pos {
   int y;
   inline Pos(int a, int b) : x(a), y(b) {}
   inline Pos() : x(0), y(0) { }
+  static Pos invalid() { return Pos(-1, -1); }
 };
 
 inline Pos operator + (const Pos& pos, const int& a) {
