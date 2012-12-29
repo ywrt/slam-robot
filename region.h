@@ -25,6 +25,8 @@ public:
     ll(tll), ur(tur) {}
   Region(int width, int height) :
     ll(0,0), ur(width, height) {}
+  Region() :
+    ll(0,0), ur(-1, -1) {}
 
   class iterator {
   public:

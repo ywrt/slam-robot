@@ -129,6 +129,18 @@ TEST_F(regionTest, Const) {
   EXPECT_EQ(3*4, loops);
 }
 
+TEST_F(regionTest, EmptyRegion) {
+  Region r;
+  int loops = 0;
+  for (auto& p : r) {
+    EXPECT_EQ(1, p.x);
+    EXPECT_EQ(1, p.y);
+    ++loops;
+  }
+  EXPECT_EQ(0, loops);
+}
+
+
 // Tests that region does Xyz.
 TEST_F(regionTest, DoesXyz) {
   // Exercises the Xyz feature of region.

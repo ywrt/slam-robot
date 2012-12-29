@@ -20,6 +20,7 @@
 
 #include "imgtypes.h"
 #include "octaveset.h"
+#include "grid.h"
 
 
 using namespace std;
@@ -206,7 +207,7 @@ struct LocalMap {
       frames.push_back(f);
     } else if (frames.size() > 0) {
       frames.push_back(frames.back());
-      frames.back().translation()[0] += 0.1;
+      frames.back().translation()[0] += 0.01;
     } else {
       frames.push_back(Frame());
     }
@@ -223,6 +224,11 @@ Vector2d fposToVector(const FPos& fp) {
   Vector2d r;
   r << fp.x * 2 - 1, fp.y * 2 - 1;
   return r;
+}
+
+FPos vectorToFPos(const Vector2d& v) {
+  FPos fp((v(0) +1 ) / 2, (v(1) + 1) / 2);
+  return fp;
 }
 
 void Project(
@@ -640,82 +646,96 @@ struct  ImageProc {
     return v.block<2,1>(0,0);
   }
 
-  int UpdateCorners(LocalMap* map, int frame) {
+  int UpdateCorners(LocalMap* map, int frame_num) {
     Matrix3d homography[3];
 
     for (int i = 0; i < 3; ++i) {
-      if (frame >= i)
+      if (i >= frame_num)
         continue;
-      const Frame& f2 = map->frames[frame];
-      const Frame& f1 = map->frames[frame - i - 1];
+      const Frame& f2 = map->frames[frame_num];
+      const Frame& f1 = map->frames[frame_num - i - 1];
       ComputeHomography(f1, f2, &homography[i]);
+
+      cout << homography[i] << endl;
     }
-    //homog_from_poses(prev->pose(), curr->pose(), &homography);
 
     for (auto& point : map->points) {
-      if ((point.last_frame() - frame) > 3)
+      if ((frame_num - point.last_frame()) > 3)
         continue;
-      CHECK_LT(frame - point.last_frame() - 1, 3);
-      CHECK_GE(frame - point.last_frame() - 1, 0);
-      const Matrix3d& homog = homography[frame - point.last_frame() - 1];
+      CHECK_LT(frame_num - point.last_frame() - 1, 3);
+      CHECK_GE(frame_num - point.last_frame() - 1, 0);
+      const Matrix3d& homog = homography[frame_num - point.last_frame() - 1];
 
       Vector2d location = ComputePoint(point.last_point(), homog);
       Vector2d lp = point.last_point();
-      FPos prev_fp(lp(0), lp(1));
-      FPos curr_fp(location(0), location(1));
 
-      FPos fp = curr->UpdatePosition(*prev, prev_fp, curr_fp);
+      FPos fp = curr->UpdatePosition(
+          *prev,
+          vectorToFPos(location),
+          vectorToFPos(lp));
       if (fp.isInvalid())
         continue;
 
       Observation o;
-      o.frame_ref = frame;
-      o.pt(0) = fp.x;
-      o.pt(1) = fp.y;
+      o.frame_ref = frame_num;
+      o.pt = fposToVector(fp);
       point.observations_.push_back(o);
     }
     return 0;
   }
 
-  void RefreshCorners(LocalMap* map, int frame) {
+  void RefreshCorners(LocalMap* map, int frame_num) {
     printf("RefreshCorners\n");
     // Mask out areas where we already have corners.
     int to_find = 40;
+
+    const int grid_size = 16;
+    Grid grid(grid_size, grid_size);
     for (auto& point : map->points) {
-      if (point.last_frame() != frame)
+      if ((frame_num - point.last_frame()) > 3)
         continue;
-      FPos lp(point.last_point()(0), point.last_point()(1));
-      if (!curr->set_known_corner(lp))
-        --to_find;
+      FPos fp(vectorToFPos(point.last_point()));
+
+      int count = grid.groupmark(grid_size * fp.x, grid_size * fp.y);
+      to_find -= count;
     }
 
     if (to_find <= 0)
       return;
-    printf("Search for %d points\n", to_find);
-    for (FPos fp = curr->find_first_corner();
-        fp.x >= 0;
-        fp = curr->find_next_corner()) {
-      printf("%f,%f\n", fp.x, fp.y);
+
+    int found = 0;
+    FPos fgrid_size(1. / grid_size, 1. / grid_size);
+
+    for (auto& p : grid) {
+      FPos corner((float)p.x / grid_size, (float) p.y / grid_size);
+      FRegion fregion(corner, corner + fgrid_size);
+      FPos fp = curr->SearchBestCorner(fregion);
+
+      if (fp.isInvalid())
+        continue;
+
       map->points.push_back(TrackedPoint());
 
       TrackedPoint& point = map->points.back();
       Observation o;
-      o.frame_ref = frame;
+      o.frame_ref = frame_num;
       o.pt = fposToVector(fp);
       point.observations_.push_back(o);
+      found++;
     }
+    printf("Search for %d points, found %d\n", to_find, found);
 
    // LOG("Now tracking %d corners\n", cset.access().num_valid());
   }
 
 
-  void ProcessFrame(const Mat& mat, int frame, LocalMap* map) {
+  void ProcessFrame(const Mat& mat, int frame_num, LocalMap* map) {
     curr->FillOctaves((uint8_t*)mat.data, mat.cols, mat.rows);
     // fill_pose(cimage->pose());
 
-    //UpdateCorners(map, frame);
+    UpdateCorners(map, frame_num);
 
-    RefreshCorners(map, frame);
+    RefreshCorners(map, frame_num);
     flip();
   }
 

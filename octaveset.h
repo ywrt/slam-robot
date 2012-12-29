@@ -33,9 +33,6 @@ class OctaveSet {
   Octave* octave3_;
 
   float pose_[16];
-  char mask_[kSectors*kSectors];
-  int search_x_;
-  int search_y_;
 public:
   OctaveSet();
   ~OctaveSet();
@@ -51,14 +48,8 @@ public:
   Pos pos0(const FPos& fp) const;
 
 
-  FPos searchBestCorner(const FRegion& region) const;
-  // While there's areas left to be searched, search for a corner.
-  FPos find_next_corner();
-  // Reset the first, and return the next corner.
-  FPos find_first_corner();
-  // Mask out areas of the integral image as known corners.
-  // Returns true if this corner was already known.
-  bool set_known_corner(const FPos& corner);
+  FPos SearchBestCorner(const FRegion& region) const;
+
 };
 
 

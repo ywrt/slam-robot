@@ -16,10 +16,8 @@ OctaveSet::OctaveSet() :
     octave0_(new Octave()),
     octave1_(new Octave()),
     octave2_(new Octave()),
-    octave3_(new Octave()),
-    search_x_(0), search_y_(0) {
-  memset(mask_, 0, sizeof(mask_));
-}
+    octave3_(new Octave())
+   {}
 
 OctaveSet::~OctaveSet() {
   delete octave3_;
@@ -124,7 +122,7 @@ FPos OctaveSet::UpdatePosition(const OctaveSet& pimage,
 
 
 
-FPos OctaveSet::searchBestCorner(const FRegion& freg) const {
+FPos OctaveSet::SearchBestCorner(const FRegion& freg) const {
   Region reg(octave3_->clipped_region(freg, 3));
 
   int min_score = 5000;
@@ -182,54 +180,9 @@ FPos OctaveSet::searchBestCorner(const FRegion& freg) const {
     return FPos::invalid();
 
 
-  LOG("(%d,%d) => %d\n",
-      best_pos.x, best_pos.y, best_score);
+ // LOG("(%d,%d) => %d\n",
+      //best_pos.x, best_pos.y, best_score);
 
   FPos fp(octave0_->fpos(best_pos));
   return fp;
-}
-
-// TODO: Move this grid search out into different class.
-// Reset the first, and return the next corner.
-FPos OctaveSet::find_first_corner() {
-  search_x_ = 0;
-  search_y_ = 0;
-  return find_next_corner();
-}
-
-// While there's areas left to be searched, search for a corner.
-FPos OctaveSet::find_next_corner() {
-  FPos fp(FPos::invalid());
-  while ( search_y_ < kSectors) {
-    int sx = search_x_;
-    int sy = search_y_;
-    FRegion freg(
-        FPos(float(sx+1)/(kSectors+2), float(sy+1)/(kSectors+2)),
-        FPos(float(sx+2)/(kSectors+2), float(sy+2)/(kSectors+2)));
-
-    fp = searchBestCorner(freg);
-
-    ++search_x_;
-    if (search_x_ >= kSectors) {
-      search_x_ = 0;
-      ++search_y_;
-    }
-    if (fp.isInvalid())
-      continue;
-    break;
-  }
-  return fp;
-}
-
-// Mask out areas of the integral image as known corners.
-bool OctaveSet::set_known_corner(const FPos& corner) {
-  Pos p(corner.x * (kSectors+2), corner.y * (kSectors+2));
-  if (p.x == 0 || p.y == 0)
-    return true;
-  if (p.x >= kSectors || p.y >= kSectors)
-    return true;
-  if (mask_[p.x + p.y*kSectors])
-    return true;
-  mask_[p.x + p.y*kSectors] = 1;
-  return false;
 }
