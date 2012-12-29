@@ -132,6 +132,23 @@ TEST_F(GridTest, GroupCount1) {
   EXPECT_EQ(5, count);
 }
 
+TEST_F(GridTest, Iter1) {
+  Grid grid(10,10);
+
+  int count = grid.groupmark(2,4);
+  count += grid.groupmark(7,3);
+  EXPECT_EQ(18, count);
+
+  Pos last(-1,-1);
+  int loops;
+  for (auto& p : grid) {
+    EXPECT_TRUE(p != last);
+    last = p;
+  }
+  EXPECT_EQ(0, loops);
+}
+
+
 }  // namespace
 
 int main(int argc, char **argv) {

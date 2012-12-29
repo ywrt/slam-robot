@@ -5,12 +5,13 @@
  *      Author: moreil
  */
 
+#include <stdio.h>
 #ifdef NEON
 #include <arm_neon.h>
 #endif
+
 #include "util.h"
 #include "octave.h"
-#include <stdio.h>
 
 const uint8_t guass_weights[] = {
     4,   6,   9,  11,  11,   9,   6,   4,
@@ -173,20 +174,20 @@ void Octave::fillScale_neon(uint8_t *patch, const FPos& fpos) const {
 
 
 // Copy a patch from the given position in the octave.
-void Octave::fillScale(uint8_t *patch, const FPos& fpos) const {
+void Octave::FillPatch(uint8_t *patch, const FPos& fpos) const {
   Pos p(pos(fpos));
 
   uint8_t* ptr = pixel_ptr(p - patch_radius);
   for (int ry = 0; ry < patch_radius*2; ++ry) {
-    ptr += width_;
     for (int rx = 0 ; rx < patch_radius*2 ; ++rx) {
       *patch++ = ptr[rx];
     }
+    ptr += width_;
   }
 }
 
 int Octave::Score(const uint8_t* patch, const Pos& pos) const {
-  uint8_t* ptr = pixel_ptr(pos - int(patch_radius));
+  uint8_t* ptr = pixel_ptr(pos - patch_radius);
 
    const uint8_t* guass_ptr = guass_weights;
    int step = width_;
@@ -214,7 +215,7 @@ int Octave::Score(const uint8_t* patch, const Pos& pos) const {
 
 // Search around a radius of the current position in this octave for the
 // best match for this patch.
-FPos Octave::searchPosition(const FPos &fp,
+FPos Octave::SearchPosition(const FPos &fp,
     const uint8_t* patch, int radius, int* bestptr) const {
   Pos p = pos(fp);
 
@@ -240,8 +241,34 @@ FPos Octave::searchPosition(const FPos &fp,
   return fpos(best_pos);
 }
 
+
+// Search around a radius of the current position in this octave for the
+// best match for this patch.
+int Octave::ScorePosition(const FPos &fp,
+    int radius) const {
+  uint8_t patch[64];
+  FillPatch(patch, fp);
+
+  Pos p = pos(fp);
+  Pos ll = clip_pos(p - radius, patch_radius);
+  Pos ur = clip_pos(p + radius, patch_radius + 1);
+
+  int min_score = (1<<30);
+  for (auto& point : Region(ll, ur)) {
+    if (point == p)
+      continue;
+    int sum = Score(patch, point);
+    if (sum > min_score)
+      continue;
+    min_score = sum;
+  }
+  return min_score;
+
+}
+
 // Score this point as a Harris corner.
-int Octave::scoreCorner(const Pos& pos) const {
+// Measures a 7 x 7 patch.
+int Octave::ScoreCorner(const Pos& pos) const {
   const uint8_t* ptr = pixel_ptr(pos - 2);
   int width = width_;
 

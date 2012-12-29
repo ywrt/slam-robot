@@ -23,6 +23,17 @@ class OctaveSetTest : public ::testing::Test {
   virtual void SetUp() {
     // Code here will be called immediately after the constructor (right
     // before each test).
+    uint8_t data[height_ * width_];
+    for (int i = 0; i < height_ * width_; ++i)
+      data[i] = i;
+    o_.FillOctaves(data, width_, height_);
+  }
+
+  void Zero() {
+    uint8_t data[height_ * width_];
+    for (int i = 0; i < height_ * width_; ++i)
+      data[i] = 0;
+    o_.FillOctaves(data, width_, height_);
   }
 
   virtual void TearDown() {
@@ -31,23 +42,34 @@ class OctaveSetTest : public ::testing::Test {
   }
 
   // Objects declared here can be used by all tests in the test case for OctaveSet.
-  OctaveSet o;
+  OctaveSet o_;
+  const int width_ = 136;
+  const int height_ = 155;
 };
 
 // Tests that the OctaveSet::Bar() method does Abc.
 TEST_F(OctaveSetTest, Fill) {
-  // fill from 11 x 13 data.
-  const int rows = 11;
-  const int cols = 13;
-  uint8_t data[rows * cols];
-  for (int i = 0; i < rows * cols; ++i)
-    data[i] = i;
-  o.FillOctaves(data, cols, rows);
 }
 
-// Tests that OctaveSet does Xyz.
-TEST_F(OctaveSetTest, DoesXyz) {
-  // Exercises the Xyz feature of OctaveSet.
+TEST_F(OctaveSetTest, SearchBestCorner) {
+  uint8_t data[height_ * width_];
+  for (int i = 0; i < height_ * width_; ++i)
+    data[i] = 0;
+
+  int offset = (height_ / 2) * width_ + width_ / 2;
+  data[offset] = 250;
+  data[offset - 1] = 250;
+  data[offset + 1] = 250;
+  data[offset - width_] = 250;
+  data[offset + width_] = 250;
+
+  o_.FillOctaves(data, width_, height_);
+
+  FPos fp = o_.SearchBestCorner(FRegion(FPos(0,0), FPos(1,1)), 0);
+  EXPECT_FALSE(fp.isInvalid());
+
+  EXPECT_NEAR(width_ / 2, fp.x * width_, 0.02);
+  EXPECT_NEAR(height_ / 2, fp.y * height_, 0.02);
 }
 
 }  // namespace

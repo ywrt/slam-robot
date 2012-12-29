@@ -163,6 +163,7 @@ public:
 
   // Fixed size 8x8 scoring. uses neon intrinsics for some sembalance of speed.
   inline int Score_neon(uint8_t* patch, Pos pos) const;
+
   // Search around a radius of the current position in this octave for the
   // best match for this patch.
   // Search around a radius of the current position in this octave for the
@@ -170,19 +171,25 @@ public:
   FPos searchPosition_neon(const FPos &fp,
       uint8_t* patch, int radius, int* bestptr) const;
   // Copy a patch from the given position in the octave.
-  void fillScale(uint8_t *patch, const FPos& fpos) const;
-
   // Copy a patch from the given position in the octave.
   void fillScale_neon(uint8_t *patch, const FPos& fpos) const;
+
+
+  void FillPatch(uint8_t *patch, const FPos& fpos) const;
 
   int Score(const uint8_t* patch, const Pos& pos) const;
   // Search around a radius of the current position in this octave for the
   // best match for this patch.
-  FPos searchPosition(const FPos &fp,
+  FPos SearchPosition(const FPos &fp,
       const uint8_t* patch, int radius, int* bestptr) const;
+  // Search around a radius of the current position in this octave for the
+  // best match of the patch at the current positions. Good matches are
+  // considered poor corners (i.e. not highly position specific).
+  int ScorePosition(const FPos &fp,
+                      int radius) const;
 
   // Compute the harris score for the image at this position.
-  int scoreCorner(const Pos& pos) const;
+  int ScoreCorner(const Pos& pos) const;
 };
 
 

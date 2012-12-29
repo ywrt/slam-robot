@@ -48,7 +48,9 @@ public:
   Pos pos0(const FPos& fp) const;
 
 
-  FPos SearchBestCorner(const FRegion& region) const;
+  FPos SearchBestCorner(const FRegion& region, int min_score) const;
+
+  int CheckCorner(const FPos& pos);
 
 };
 

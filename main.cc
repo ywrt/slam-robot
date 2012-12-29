@@ -385,7 +385,7 @@ void RunSlam(LocalMap* map, int min_frame_to_solve) {
   }
 #endif
 
-#if 1
+#if 0
   ceres::ParameterBlockOrdering* ordering =
       new ceres::ParameterBlockOrdering;
 
@@ -441,7 +441,7 @@ void RunSlam(LocalMap* map, int min_frame_to_solve) {
   options.preconditioner_type = ceres::SCHUR_JACOBI;
   options.minimizer_progress_to_stdout = true;
   //options.use_inner_iterations = true;
-  options.max_num_iterations = 5000;
+  options.max_num_iterations = 150;
   options.function_tolerance = 1e-8;
   //  if (frames > 15) {
   //  options.use_nonmonotonic_steps = true;
@@ -566,6 +566,8 @@ void DumpMap(LocalMap* map) {
 
 
   for (auto& point : map->points) {
+    if (point.num_observations() < 2)
+      continue;
     for (auto& o : point.observations_) {
       Vector2d r(o.pt);
 
@@ -649,7 +651,8 @@ struct  ImageProc {
   int UpdateCorners(LocalMap* map, int frame_num) {
     Matrix3d homography[3];
 
-    for (int i = 0; i < 3; ++i) {
+    const int search_frames = 1;
+    for (int i = 0; i < search_frames; ++i) {
       if (i >= frame_num)
         continue;
       const Frame& f2 = map->frames[frame_num];
@@ -660,14 +663,15 @@ struct  ImageProc {
     }
 
     for (auto& point : map->points) {
-      if ((frame_num - point.last_frame()) > 3)
+      if ((frame_num - point.last_frame()) > search_frames)
         continue;
-      CHECK_LT(frame_num - point.last_frame() - 1, 3);
+      CHECK_LT(frame_num - point.last_frame() - 1, search_frames);
       CHECK_GE(frame_num - point.last_frame() - 1, 0);
       const Matrix3d& homog = homography[frame_num - point.last_frame() - 1];
 
       Vector2d location = ComputePoint(point.last_point(), homog);
       Vector2d lp = point.last_point();
+      location = lp;
 
       FPos fp = curr->UpdatePosition(
           *prev,
@@ -686,22 +690,24 @@ struct  ImageProc {
 
   void RefreshCorners(LocalMap* map, int frame_num) {
     printf("RefreshCorners\n");
-    // Mask out areas where we already have corners.
-    int to_find = 40;
 
+    // Mask out areas where we already have corners.
     const int grid_size = 16;
     Grid grid(grid_size, grid_size);
+    int valid_points = 0;
+    int sectors_marked = 0;
     for (auto& point : map->points) {
-      if ((frame_num - point.last_frame()) > 3)
+      if ((frame_num - point.last_frame()) > 1)
         continue;
       FPos fp(vectorToFPos(point.last_point()));
 
       int count = grid.groupmark(grid_size * fp.x, grid_size * fp.y);
-      to_find -= count;
+      sectors_marked += count;
+      ++valid_points;
     }
 
-    if (to_find <= 0)
-      return;
+    printf("Valid: %d, sectors %d\n", valid_points, sectors_marked);
+
 
     int found = 0;
     FPos fgrid_size(1. / grid_size, 1. / grid_size);
@@ -709,9 +715,14 @@ struct  ImageProc {
     for (auto& p : grid) {
       FPos corner((float)p.x / grid_size, (float) p.y / grid_size);
       FRegion fregion(corner, corner + fgrid_size);
-      FPos fp = curr->SearchBestCorner(fregion);
+      FPos fp = curr->SearchBestCorner(fregion, 0);
 
       if (fp.isInvalid())
+        continue;
+
+      int score = curr->CheckCorner(fp);
+     // printf("score: %d\n", score);
+      if ( score < 3000)
         continue;
 
       map->points.push_back(TrackedPoint());
@@ -722,8 +733,9 @@ struct  ImageProc {
       o.pt = fposToVector(fp);
       point.observations_.push_back(o);
       found++;
+      grid.groupmark(p.x, p.y);
     }
-    printf("Search for %d points, found %d\n", to_find, found);
+    printf("Search found %d\n", found);
 
    // LOG("Now tracking %d corners\n", cset.access().num_valid());
   }
@@ -848,22 +860,21 @@ int main(int argc, char*argv[]) {
 
     cv::imshow( "Display window", out);
 
-    int mod = 3;
+    int mod = 1;
     if (frame > 20)
-      mod = 6;
+      mod = 3;
     if (frame > 50)
-      mod = 15;
+      mod = 6;
 
     if ((frame%mod) == 0) {
-      //  RunSlam(&map, frame - mod);
-      //DumpMap(&map);
-      // RunSlam(&map, -1);
-      //  DumpMap(&map);
+      if (frame > mod * 2) {
+        RunSlam(&map, frame - mod);
+        DumpMap(&map);
+      }
+      RunSlam(&map, -1);
+      DumpMap(&map);
       cv::waitKey(0);
     }
-
-
-
   }
   return 0;
 }
