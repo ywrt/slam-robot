@@ -66,47 +66,43 @@ public:
 class HomogenousParameterization : public ceres::LocalParameterization {
  public:
   virtual ~HomogenousParameterization() {}
- virtual bool Plus(const double* x,
-                   const double* delta,
-                   double* x_plus_delta) const;
- virtual bool ComputeJacobian(const double* x,
-                              double* jacobian) const;
- virtual int GlobalSize() const { return 4; }
- virtual int LocalSize() const { return 3; }
- bool Plus(const double* x,
+
+  virtual int GlobalSize() const { return 4; }
+  virtual int LocalSize() const { return 3; }
+  bool Plus(const double* x,
            const double* delta,
            double* x_plus_delta) const {
-   Map<const Vector4d> mx(x);
-   Map<const Vector3d> mdelta(delta);
-   Map<Vector4d> mx_plus_delta(x_plus_delta);
+    Map<const Vector4d> mx(x);
+    Map<const Vector3d> mdelta(delta);
+    Map<Vector4d> mx_plus_delta(x_plus_delta);
 
-   Vector4d sum = mx;
-   sum.topLeftCorner<3,1>() += mdelta;
-   mx_plus_delta = sum / sum.norm();
-   return true;
- }
- bool ComputeJacobian(
-     const double* x,
-     double* jacobian) const {
-   double ssq = x[0]*x[0] + x[1]*x[1] + x[2]*x[2] + x[3]*x[3];
-   double ssq32 = sqrt(ssq)*ssq;
+    Vector4d sum = mx;
+    sum.topLeftCorner<3,1>() += mdelta;
+    mx_plus_delta = sum / sum.norm();
+    return true;
+  }
+  bool ComputeJacobian(
+      const double* x,
+      double* jacobian) const {
+    double ssq = x[0]*x[0] + x[1]*x[1] + x[2]*x[2] + x[3]*x[3];
+    double ssq32 = sqrt(ssq)*ssq;
 
-   jacobian[0]  = -x[0]*x[0]/ssq32 + 1/sqrt(ssq);
-   jacobian[3]  = -x[0]*x[1]/ssq32;
-   jacobian[6]  = -x[0]*x[2]/ssq32;
-   jacobian[9]  = -x[0]*x[3]/ssq32;
+    jacobian[0]  = -x[0]*x[0]/ssq32 + 1/sqrt(ssq);
+    jacobian[3]  = -x[0]*x[1]/ssq32;
+    jacobian[6]  = -x[0]*x[2]/ssq32;
+    jacobian[9]  = -x[0]*x[3]/ssq32;
 
-   jacobian[1]  = -x[1]*x[0]/ssq32;
-   jacobian[4]  = -x[1]*x[1]/ssq32 + 1/sqrt(ssq);
-   jacobian[7]  = -x[1]*x[2]/ssq32;
-   jacobian[10] = -x[1]*x[3]/ssq32;
+    jacobian[1]  = -x[1]*x[0]/ssq32;
+    jacobian[4]  = -x[1]*x[1]/ssq32 + 1/sqrt(ssq);
+    jacobian[7]  = -x[1]*x[2]/ssq32;
+    jacobian[10] = -x[1]*x[3]/ssq32;
 
-   jacobian[2]  = -x[2]*x[0]/ssq32;
-   jacobian[5]  = -x[2]*x[1]/ssq32;
-   jacobian[8]  = -x[2]*x[2]/ssq32 + 1/sqrt(ssq);
-   jacobian[11] = -x[2]*x[3]/ssq32;
-   return true;
- }
+    jacobian[2]  = -x[2]*x[0]/ssq32;
+    jacobian[5]  = -x[2]*x[1]/ssq32;
+    jacobian[8]  = -x[2]*x[2]/ssq32 + 1/sqrt(ssq);
+    jacobian[11] = -x[2]*x[3]/ssq32;
+    return true;
+  }
 };
 
 struct ReprojectionError {
@@ -159,20 +155,6 @@ struct ReprojectionError {
   double observed_x;
   double observed_y;
 };
-
-void Project(
-    const Camera& camera,
-    const Frame& frame,
-    const TrackedPoint& point,
-    double* result) {
-  ReprojectionError p(result[0],result[1]);
-  p(camera.scale(), camera.instrinsics(),
-      frame.rotation(),
-      frame.translation(),
-      point.location(),
-      result);
-}
-
 
 void RunSlam(LocalMap* map, int min_frame_to_solve) {
   // Create residuals for each observation in the bundle adjustment problem. The
@@ -265,9 +247,9 @@ void RunSlam(LocalMap* map, int min_frame_to_solve) {
     map->camera.data[0] = 1;
   if (map->camera.data[0] > 3)
       map->camera.data[0] = 1;
-  if (frame < 10)
+  if (frame < 40 || min_frame_to_solve > 0)
     problem.SetParameterBlockConstant(&(map->camera.data[0]));
-  if (frame < 50)
+  if (frame < 50 || min_frame_to_solve > 0)
     problem.SetParameterBlockConstant(&(map->camera.data[1]));
 
   for (int i = 1; i < (int)map->frames.size() && i < min_frame_to_solve; ++i) {
@@ -287,8 +269,8 @@ void RunSlam(LocalMap* map, int min_frame_to_solve) {
     }
   }
 
-
   options.linear_solver_type = ceres::ITERATIVE_SCHUR;
+  options.linear_solver_type = ceres::DENSE_SCHUR;
   options.preconditioner_type = ceres::SCHUR_JACOBI;
   options.minimizer_progress_to_stdout = true;
   //options.use_inner_iterations = true;
@@ -306,48 +288,23 @@ void RunSlam(LocalMap* map, int min_frame_to_solve) {
   ceres::Solver::Summary summary;
   ceres::Solve(options, &problem, &summary);
   std::cout << summary.FullReport() << "\n";
-}
 
-void CleanMap(LocalMap* map) {
-  // SortObs sorter;
-  // sort(map->obs.begin(), map->obs.end(), sorter);
-  int err_hist[20] = {0,0,0,0,0,0,0,0,0,0};
-
-
+  // Update observation error for each point.
   for (auto& point : map->points) {
     point.location_.normalize();
-    if (point.num_observations() < 2)
-      continue;
-    int poor_matches = 0;
     for (auto& o : point.observations_) {
-      Vector2d r(o.pt);
+      o.error = o.pt;
+      const Frame& frame = map->frames[o.frame_ref];
 
-      Project(
-          map->camera,
-          map->frames[o.frame_ref],
-          point,
-          r.data());
-      double err = r.norm() * 1000;
-      if (err < sizeof(err_hist) / sizeof(err_hist[0])) {
-        ++err_hist[(int)err];
-      }
+      ReprojectionError project(o.pt(0), o.pt(1));
 
-      if (err < 5)
-        continue;
-      printf("frame %3d : (matches %d) [%7.3f %7.3f] (%7.2f,%7.2f) -> %.2f\n",
-          o.frame_ref,
-          point.num_observations(),
-          o.pt(0), o.pt(1),
-          r[0] * 1000, r[1] * 1000,
-          err);
-      ++poor_matches;
+      project(map->camera.scale(),
+              map->camera.instrinsics(),
+              frame.rotation(),
+              frame.translation(),
+              point.location(),
+              o.error.data());
     }
-    if (poor_matches) {
-      point.bad_ = true;
-      point.observations_.pop_back();
-    }
-  }
-  for (size_t i = 0; i < sizeof(err_hist) / sizeof(err_hist[0]); ++i) {
-    printf("err_hist: %2ld : %5d\n", i, err_hist[i]);
   }
 }
+

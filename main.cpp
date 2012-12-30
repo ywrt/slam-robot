@@ -18,10 +18,13 @@
 
 #include <eigen3/Eigen/Eigen>
 
+#include <glog/logging.h>
+
 #include "imgtypes.h"
 #include "octaveset.h"
 #include "grid.h"
 
+#include "localmap.h"
 #include "slam.h"
 
 
@@ -122,36 +125,7 @@ void UpdateMap(LocalMap* map,
   }
 }
 
-void NormMap(LocalMap* map) {
-  double sum(0);
-  double count(0);
-  for (auto& f : map->frames) {
-    sum += f.translation()[2] * f.translation()[2];
-    count++;
-  }
-  if (sum < 1)
-    return;
-  double scale = count / sum;
-#if 0
-  for (auto& p : map->points) {
-    p.data[0] *= scale;
-    p.data[1] *= scale;
-    p.data[2] *= scale;
-  }
-#endif
-  for (auto& f : map->frames) {
-    f.translation()[0] *= scale;
-    f.translation()[1] *= scale;
-    f.translation()[2] *= scale;
-  }
-}
-
 void DumpMap(LocalMap* map) {
-  // SortObs sorter;
-  // sort(map->obs.begin(), map->obs.end(), sorter);
-  int err_hist[20] = {0,0,0,0,0,0,0,0,0,0};
-
-
   for (auto& f : map->frames) {
     printf("(%f,%f,%f,%f) -> (%f, %f, %f)\n",
            f.rotation()[0], f.rotation()[1],
@@ -400,7 +374,7 @@ int main(int argc, char*argv[]) {
       normed_points.push_back(p);
     }
 
-    map.addFrame(frame);
+    map.AddFrame(frame);
 
     proc.ProcessFrame(grey, frame, &map);
 
@@ -433,11 +407,11 @@ int main(int argc, char*argv[]) {
 
 
     RunSlam(&map, frame - 1);
-    CleanMap(&map);
+    map.Clean();
 
     if ((frame % mod) == 0) {
       RunSlam(&map, -1);
-      CleanMap(&map);
+      map.Clean();
       DumpMap(&map);
       cv::waitKey(0);
     }
