@@ -40,7 +40,7 @@ Pos OctaveSet::pos0(const FPos& fp) const {
   return octave0_->pos(fp);
 }
 
-void OctaveSet::fillPatchSet(const FPos& fp, PatchSet* ps) const {
+void OctaveSet::FillPatchSet(const FPos& fp, PatchSet* ps) const {
   octave3_->FillPatch(ps->octave3.data, fp);
   octave2_->FillPatch(ps->octave2.data, fp);
   octave1_->FillPatch(ps->octave1.data, fp);

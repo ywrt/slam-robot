@@ -1,7 +1,7 @@
 
 CFLAGS=-g
 OPT=-O3 -ffast-math -msse4.2 
-CXXFLAGS = -fmessage-length=0 -Ieigen-eigen-304c88ca3aff -std=c++0x -g -Wall $(OPT) -I../Eigen
+CXXFLAGS = -fmessage-length=0 -Ieigen-eigen-304c88ca3aff -std=c++11 -g -Wall $(OPT) -I../Eigen
 LDFLAGS = 
 OBJS = octave.o octaveset.o grid.o slam.o
 

@@ -39,7 +39,7 @@ public:
 
   void FillOctaves(uint8_t* data, int width, int height);
 
-  void fillPatchSet(const FPos& fp, PatchSet* patch) const;
+  void FillPatchSet(const FPos& fp, PatchSet* patch) const;
 
   FPos UpdatePosition(const OctaveSet& pimage, const FPos& pos, const FPos& ppos) const;
   FPos UpdatePosition(const PatchSet& ps, const FPos& pos) const;

@@ -9,7 +9,7 @@
 #define SLAM_H_
 #include <vector>
 
-#include <Eigen/Eigen>
+#include <eigen3/Eigen/Eigen>
 
 #include "octaveset.h"
 
@@ -154,6 +154,15 @@ struct LocalMap {
 
 };
 
+
+Vector2d fposToVector(const FPos& fp);
+FPos vectorToFPos(const Vector2d& v);
+void Project(
+    const Camera& camera,
+    const Frame& frame,
+    const TrackedPoint& point,
+    double* result);
+void RunSlam(LocalMap* map, int min_frame_to_solve);
 
 class Slam {
 };
