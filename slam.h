@@ -35,7 +35,7 @@ struct Frame {
 
 // Camera intrinsics.
 struct Camera {
-  Camera() : data {0.7, -0.05, 0} {}
+  Camera() : data {1.0, -0.05, 0} {}
   double data[3];
   // 0 == focal length.
   // 1, 2 == radial distortion
@@ -163,6 +163,7 @@ void Project(
     const TrackedPoint& point,
     double* result);
 void RunSlam(LocalMap* map, int min_frame_to_solve);
+void CleanMap(LocalMap* map);
 
 class Slam {
 };

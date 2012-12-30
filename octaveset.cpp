@@ -107,7 +107,7 @@ FPos OctaveSet::UpdatePosition(const OctaveSet& pimage,
   Pos rev = pimage.octave0_->pos(rfp);
   Pos delta(abs(fwd.x - rev.x), abs(fwd.y - rev.y));
 
-  if ((delta.x + delta.y) > 2) {
+  if ((delta.x + delta.y) > 0) {
     // Update failed.
     LOG("updatePos failed: (%3d,%3d) -> (%3d,%3d) : (%-3d,%-3d) [%f,%f]\n",
         fwd.x, fwd.y, rev.x, rev.y,

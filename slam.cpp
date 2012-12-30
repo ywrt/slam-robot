@@ -64,57 +64,52 @@ public:
 
 // Parameterization of homogeneous coordinates in R^3.
 class HomogenousParameterization : public ceres::LocalParameterization {
-public:
+ public:
   virtual ~HomogenousParameterization() {}
-virtual bool Plus(const double* x,
-    const double* delta,
-    double* x_plus_delta) const;
-virtual bool ComputeJacobian(const double* x,
-    double* jacobian) const;
-virtual int GlobalSize() const { return 4; }
-virtual int LocalSize() const { return 3; }
+ virtual bool Plus(const double* x,
+                   const double* delta,
+                   double* x_plus_delta) const;
+ virtual bool ComputeJacobian(const double* x,
+                              double* jacobian) const;
+ virtual int GlobalSize() const { return 4; }
+ virtual int LocalSize() const { return 3; }
+ bool Plus(const double* x,
+           const double* delta,
+           double* x_plus_delta) const {
+   Map<const Vector4d> mx(x);
+   Map<const Vector3d> mdelta(delta);
+   Map<Vector4d> mx_plus_delta(x_plus_delta);
+
+   Vector4d sum = mx;
+   sum.topLeftCorner<3,1>() += mdelta;
+   mx_plus_delta = sum / sum.norm();
+   return true;
+ }
+ bool ComputeJacobian(
+     const double* x,
+     double* jacobian) const {
+   double ssq = x[0]*x[0] + x[1]*x[1] + x[2]*x[2] + x[3]*x[3];
+   double ssq32 = sqrt(ssq)*ssq;
+
+   jacobian[0]  = -x[0]*x[0]/ssq32 + 1/sqrt(ssq);
+   jacobian[3]  = -x[0]*x[1]/ssq32;
+   jacobian[6]  = -x[0]*x[2]/ssq32;
+   jacobian[9]  = -x[0]*x[3]/ssq32;
+
+   jacobian[1]  = -x[1]*x[0]/ssq32;
+   jacobian[4]  = -x[1]*x[1]/ssq32 + 1/sqrt(ssq);
+   jacobian[7]  = -x[1]*x[2]/ssq32;
+   jacobian[10] = -x[1]*x[3]/ssq32;
+
+   jacobian[2]  = -x[2]*x[0]/ssq32;
+   jacobian[5]  = -x[2]*x[1]/ssq32;
+   jacobian[8]  = -x[2]*x[2]/ssq32 + 1/sqrt(ssq);
+   jacobian[11] = -x[2]*x[3]/ssq32;
+   return true;
+ }
 };
 
-bool HomogenousParameterization::Plus(const double* x,
-    const double* delta,
-    double* x_plus_delta) const {
-  Map<const Vector4d> mx(x);
-  Map<const Vector3d> mdelta(delta);
-  Map<Vector4d> mx_plus_delta(x_plus_delta);
-
-  Vector4d sum = mx;
-  sum.topLeftCorner<3,1>() += mdelta;
-  mx_plus_delta = sum / sum.norm();
-  return true;
-}
-
-bool HomogenousParameterization::ComputeJacobian(
-    const double* x,
-    double* jacobian) const {
-
-  double ssq = x[0]*x[0] + x[1]*x[1] + x[2]*x[2] + x[3]*x[3];
-  double ssq32 = sqrt(ssq)*ssq;
-
-  jacobian[0]  = -x[0]*x[0]/ssq32 + 1/sqrt(ssq);
-  jacobian[3]  = -x[0]*x[1]/ssq32;
-  jacobian[6]  = -x[0]*x[2]/ssq32;
-  jacobian[9]  = -x[0]*x[3]/ssq32;
-
-  jacobian[1]  = -x[1]*x[0]/ssq32;
-  jacobian[4]  = -x[1]*x[1]/ssq32 + 1/sqrt(ssq);
-  jacobian[7]  = -x[1]*x[2]/ssq32;
-  jacobian[10] = -x[1]*x[3]/ssq32;
-
-  jacobian[2]  = -x[2]*x[0]/ssq32;
-  jacobian[5]  = -x[2]*x[1]/ssq32;
-  jacobian[8]  = -x[2]*x[2]/ssq32 + 1/sqrt(ssq);
-  jacobian[11] = -x[2]*x[3]/ssq32;
-  return true;
-}
-
-
 struct ReprojectionError {
-
   ReprojectionError(double observed_x, double observed_y)
   : observed_x(observed_x), observed_y(observed_y) {}
 
@@ -223,7 +218,7 @@ void RunSlam(LocalMap* map, int min_frame_to_solve) {
   if (frame_set.size() < 2)
     return;
 
-#if 1
+#if 0
   options.use_inner_iterations = true;
 #if 0
   options.inner_iteration_ordering =
@@ -257,10 +252,12 @@ void RunSlam(LocalMap* map, int min_frame_to_solve) {
     problem.SetParameterization(frame->rotation(),
         quaternion_parameterization);
   }
+#if 0
   auto homogenous = new HomogenousParameterization;
   for (auto& pt : point_set) {
     problem.SetParameterization(pt->location(), homogenous);
   }
+#endif
 
   problem.SetParameterBlockConstant(map->frames[0].translation());
   problem.SetParameterBlockConstant(map->frames[0].rotation());
@@ -311,3 +308,46 @@ void RunSlam(LocalMap* map, int min_frame_to_solve) {
   std::cout << summary.FullReport() << "\n";
 }
 
+void CleanMap(LocalMap* map) {
+  // SortObs sorter;
+  // sort(map->obs.begin(), map->obs.end(), sorter);
+  int err_hist[20] = {0,0,0,0,0,0,0,0,0,0};
+
+
+  for (auto& point : map->points) {
+    point.location_.normalize();
+    if (point.num_observations() < 2)
+      continue;
+    int poor_matches = 0;
+    for (auto& o : point.observations_) {
+      Vector2d r(o.pt);
+
+      Project(
+          map->camera,
+          map->frames[o.frame_ref],
+          point,
+          r.data());
+      double err = r.norm() * 1000;
+      if (err < sizeof(err_hist) / sizeof(err_hist[0])) {
+        ++err_hist[(int)err];
+      }
+
+      if (err < 5)
+        continue;
+      printf("frame %3d : (matches %d) [%7.3f %7.3f] (%7.2f,%7.2f) -> %.2f\n",
+          o.frame_ref,
+          point.num_observations(),
+          o.pt(0), o.pt(1),
+          r[0] * 1000, r[1] * 1000,
+          err);
+      ++poor_matches;
+    }
+    if (poor_matches) {
+      point.bad_ = true;
+      point.observations_.pop_back();
+    }
+  }
+  for (size_t i = 0; i < sizeof(err_hist) / sizeof(err_hist[0]); ++i) {
+    printf("err_hist: %2ld : %5d\n", i, err_hist[i]);
+  }
+}

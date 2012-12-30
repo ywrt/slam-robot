@@ -149,60 +149,27 @@ void NormMap(LocalMap* map) {
 void DumpMap(LocalMap* map) {
   // SortObs sorter;
   // sort(map->obs.begin(), map->obs.end(), sorter);
-  int err_hist[10] = {0,0,0,0,0,0,0,0,0,0};
+  int err_hist[20] = {0,0,0,0,0,0,0,0,0,0};
 
 
-  for (auto& point : map->points) {
-    if (point.num_observations() < 2)
-      continue;
-    int poor_matches = 0;
-    for (auto& o : point.observations_) {
-      Vector2d r(o.pt);
-
-      Project(
-          map->camera,
-          map->frames[o.frame_ref],
-          point,
-          r.data());
-      double err = r.norm() * 1000;
-      if (err < 10) {
-        ++err_hist[(int)err];
-        continue;
-      }
-      printf("frame %3d : (matches %d) [%7.3f %7.3f] (%7.2f,%7.2f) -> %.2f\n",
-          o.frame_ref,
-          point.num_observations(),
-          o.pt(0), o.pt(1),
-          r[0] * 1000, r[1] * 1000,
-          err);
-      ++poor_matches;
-    }
-    if (poor_matches && point.num_observations() < 30) {
-      point.bad_ = true;
-      point.observations_.pop_back();
-    } else if (poor_matches > 1) {
-      point.bad_ = true;
-    }
-  }
-  for (size_t i = 0; i < 10; ++i) {
-    printf("err_hist: %2ld : %5d\n", i, err_hist[i]);
-  }
   for (auto& f : map->frames) {
     printf("(%f,%f,%f,%f) -> (%f, %f, %f)\n",
-        f.rotation()[0], f.rotation()[1], f.rotation()[2], f.rotation()[3],
-        f.translation()[0], f.translation()[1], f.translation()[2]);
+           f.rotation()[0], f.rotation()[1],
+           f.rotation()[2], f.rotation()[3],
+           f.translation()[0], f.translation()[1],
+           f.translation()[2]);
   }
 #if 0
   for (auto& p : map->points) {
     printf("pt %f,%f,%f\n",
-        p.data[0], p.data[1], p.data[2]);
+           p.data[0], p.data[1], p.data[2]);
   }
 #endif
 
   printf("focal %f r1 %f r2 %f\n",
-      map->camera.data[0],
-      map->camera.data[1],
-      map->camera.data[2]);
+         map->camera.data[0],
+         map->camera.data[1],
+         map->camera.data[2]);
 }
 
 struct  ImageProc {
@@ -466,9 +433,11 @@ int main(int argc, char*argv[]) {
 
 
     RunSlam(&map, frame - 1);
+    CleanMap(&map);
 
     if ((frame % mod) == 0) {
       RunSlam(&map, -1);
+      CleanMap(&map);
       DumpMap(&map);
       cv::waitKey(0);
     }
