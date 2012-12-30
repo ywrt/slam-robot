@@ -89,12 +89,12 @@ public:
 
   // Convert floating-point region to
   // pixel position.
-  inline Region region(const FRegion& fp) const {
+  inline Region sub_region(const FRegion& fp) const {
     return Region(pos(fp.ll), pos(fp.ur));
   }
   // Convert pixel position to floating-point
   // position in [0,1]x[0,1]
-  inline FRegion fregion(const Region& fp) const {
+  inline FRegion sub_fregion(const Region& fp) const {
     return FRegion(fpos(fp.ll), fpos(fp.ur));
   }
 
@@ -127,7 +127,7 @@ public:
   inline Region clipped_region(
       const FRegion& freg,
       int margin) const {
-    return clipped_region(region(freg), margin);
+    return clipped_region(sub_region(freg), margin);
   }
 
   // Does this point line inside the clip region?

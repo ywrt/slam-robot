@@ -27,17 +27,18 @@ using namespace std;
 using namespace cv;
 using namespace Eigen;
 
-// 1. Merge RealPoint and DescribedPoint.
-// 2. Maintain a list of observations per point.
-// 3. Check visibility before attempting to match?
-// 4. Better point tracking: patch matching?
-// 5. Downscale to reduce impact of compression.
 
+// TODO: Check point visibility before attempting to match.
+// TODO: Use descriptor matching to attempt loop closing.
+// TODO: Build and use key frames.
+// TODO: reduce use of structs.
+// TODO: Merge FPos and Vector2d.
+// TODO: Better bounds checking for Octave.
+// TODO: Better name for FPos (relative pos?)
+// TODO: Change FPos to use doubles.
+// TODO: Make it real time
+// TODO: Use pose estimate for homography estimates.
 
-
-
-void Process(char* filename) {
-}
 
 struct SnavelyReprojectionError {
 
@@ -102,7 +103,7 @@ struct Frame {
 
 // Camera instrinsics.
 struct Camera {
-  Camera() : data {1.3, -0.02, 0} {}
+  Camera() : data {0.7, -0.05, 0} {}
   double data[3];
   // 0 == focal length.
   // 1, 2 == radial distortion
@@ -216,8 +217,10 @@ struct LocalMap {
 
   Camera camera;
   vector<Frame> frames;
+  vector<int> keyframes;
   vector<TrackedPoint> points;
   vector<Observation> obs;
+
 };
 
 Vector2d fposToVector(const FPos& fp) {
@@ -342,7 +345,7 @@ void RunSlam(LocalMap* map, int min_frame_to_solve) {
   set<Frame*> frame_set;
   set<TrackedPoint*> point_set;
 
-  auto loss = new ceres::CauchyLoss(.005);
+  auto loss = new ceres::CauchyLoss(.02);
   //auto loss = new ceres::HuberLoss(0.02);
 
   for (auto& point : map->points) {
@@ -375,22 +378,24 @@ void RunSlam(LocalMap* map, int min_frame_to_solve) {
   if (frame_set.size() < 2)
     return;
 
-#if 0
+#if 1
   options.use_inner_iterations = true;
+#if 0
   options.inner_iteration_ordering =
       new ceres::ParameterBlockOrdering;
-  for (RealPoint& p : map->points) {
+  for (auto& p : point_set) {
     options.inner_iteration_ordering->AddElementToGroup(
-        &(p.data[0]), 0);
+        p->location(), 0);
   }
 #endif
+#endif
 
-#if 0
+#if 1
   ceres::ParameterBlockOrdering* ordering =
       new ceres::ParameterBlockOrdering;
 
-  for (TrackedPoint& p : map->points) {
-    ordering->AddElementToGroup(p.location(), 0);
+  for (auto p : point_set) {
+    ordering->AddElementToGroup(p->location(), 0);
   }
   for (auto frame : frame_set) {
     ordering->AddElementToGroup(frame->translation(), 1);
@@ -414,9 +419,13 @@ void RunSlam(LocalMap* map, int min_frame_to_solve) {
 
   problem.SetParameterBlockConstant(map->frames[0].translation());
   problem.SetParameterBlockConstant(map->frames[0].rotation());
-  if (frame < 100)
+  if (map->camera.data[0] < 0.3)
+    map->camera.data[0] = 1;
+  if (map->camera.data[0] > 3)
+      map->camera.data[0] = 1;
+  if (frame < 10)
     problem.SetParameterBlockConstant(&(map->camera.data[0]));
-  if (frame < 200)
+  if (frame < 50)
     problem.SetParameterBlockConstant(&(map->camera.data[1]));
 
   for (int i = 1; i < (int)map->frames.size() && i < min_frame_to_solve; ++i) {
@@ -442,6 +451,8 @@ void RunSlam(LocalMap* map, int min_frame_to_solve) {
   options.minimizer_progress_to_stdout = true;
   //options.use_inner_iterations = true;
   options.max_num_iterations = 150;
+  if (min_frame_to_solve < 0)
+    options.max_num_iterations = 1500;
   options.function_tolerance = 1e-8;
   //  if (frames > 15) {
   //  options.use_nonmonotonic_steps = true;
@@ -518,7 +529,7 @@ void UpdateMap(LocalMap* map,
   // Remove tracked points that aren't useful. I.e.
   // tracked points that matched only one frame, and were
   // created more than 3 frames ago.
-  // TODO: change map->points to be a vector of points
+  // TODO: change map->points to be a vector of pointers
   // and have this erase bad points.
   for (auto& point : map->points) {
     if (point.num_observations() > 1)
@@ -568,6 +579,7 @@ void DumpMap(LocalMap* map) {
   for (auto& point : map->points) {
     if (point.num_observations() < 2)
       continue;
+    int poor_matches = 0;
     for (auto& o : point.observations_) {
       Vector2d r(o.pt);
 
@@ -587,6 +599,13 @@ void DumpMap(LocalMap* map) {
           o.pt(0), o.pt(1),
           r[0] * 1000, r[1] * 1000,
           err);
+      ++poor_matches;
+    }
+    if (poor_matches && point.num_observations() < 30) {
+      point.bad_ = true;
+      point.observations_.pop_back();
+    } else if (poor_matches > 1) {
+      point.bad_ = true;
     }
   }
   for (size_t i = 0; i < 10; ++i) {
@@ -692,12 +711,14 @@ struct  ImageProc {
     printf("RefreshCorners\n");
 
     // Mask out areas where we already have corners.
-    const int grid_size = 16;
+    const int grid_size = 24;
     Grid grid(grid_size, grid_size);
     int valid_points = 0;
     int sectors_marked = 0;
     for (auto& point : map->points) {
       if ((frame_num - point.last_frame()) > 1)
+        continue;
+      if (point.bad_)
         continue;
       FPos fp(vectorToFPos(point.last_point()));
 
@@ -722,7 +743,7 @@ struct  ImageProc {
 
       int score = curr->CheckCorner(fp);
      // printf("score: %d\n", score);
-      if ( score < 3000)
+      if ( score < 2000)
         continue;
 
       map->points.push_back(TrackedPoint());
@@ -861,16 +882,16 @@ int main(int argc, char*argv[]) {
     cv::imshow( "Display window", out);
 
     int mod = 1;
-    if (frame > 20)
-      mod = 3;
-    if (frame > 50)
+    if (frame > 10)
       mod = 6;
+    if (frame > 50)
+      mod = 15;
 
-    if ((frame%mod) == 0) {
-      if (frame > mod * 2) {
-        RunSlam(&map, frame - mod);
-        DumpMap(&map);
-      }
+
+
+    RunSlam(&map, frame - 1);
+
+    if ((frame % mod) == 0) {
       RunSlam(&map, -1);
       DumpMap(&map);
       cv::waitKey(0);

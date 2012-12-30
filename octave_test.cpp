@@ -45,7 +45,7 @@ class OctaveTest : public ::testing::Test {
 };
 
 TEST_F(OctaveTest, Region) {
-  Region r = o_.region(FRegion(FPos(0,0), FPos(1,1)));
+  Region r = o_.sub_region(FRegion(FPos(0,0), FPos(1,1)));
   EXPECT_EQ(0, r.ll.x);
   EXPECT_EQ(0, r.ll.y);
   EXPECT_EQ(width_, r.ur.x);
@@ -53,7 +53,7 @@ TEST_F(OctaveTest, Region) {
 }
 
 TEST_F(OctaveTest, Region1) {
-  Region r = o_.region(FRegion(FPos(0.2, 0.4), FPos(0.6, 0.8)));
+  Region r = o_.sub_region(FRegion(FPos(0.2, 0.4), FPos(0.6, 0.8)));
   EXPECT_EQ(3, r.ll.x);
   EXPECT_EQ(13, r.ll.y);
   EXPECT_EQ(10, r.ur.x);
