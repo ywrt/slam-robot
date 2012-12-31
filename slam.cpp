@@ -156,20 +156,94 @@ struct ReprojectionError {
   double observed_y;
 };
 
-void RunSlam(LocalMap* map, int min_frame_to_solve) {
+
+void Slam::SetupParameterization() {
+  ceres::LocalParameterization* quaternion_parameterization =
+      new ceres::QuaternionParameterization;
+  for (auto frame : frame_set_) {
+    problem_->SetParameterization(frame->rotation(),
+                                 quaternion_parameterization);
+  }
+
+#if 0
+  auto homogenous = new HomogenousParameterization;
+  for (auto& pt : point_set) {
+    problem_.SetParameterization(pt->location(), homogenous);
+  }
+#endif
+}
+
+void Slam::SetupConstantBlocks(const int frame,
+                         int min_frame_to_solve,
+                         LocalMap* map) {
+  problem_->SetParameterBlockConstant(map->frames[0].translation());
+  problem_->SetParameterBlockConstant(map->frames[0].rotation());
+  if (map->camera.data[0] < 0.3)
+    map->camera.data[0] = 1;
+
+  if (map->camera.data[0] > 3)
+    map->camera.data[0] = 1;
+
+  const bool fixed_intrinsics = true;
+  if (frame < 40 || min_frame_to_solve > 0 || fixed_intrinsics)
+    problem_->SetParameterBlockConstant(&(map->camera.data[0]));
+
+  if (frame < 50 || min_frame_to_solve > 0 || fixed_intrinsics)
+    problem_->SetParameterBlockConstant(&(map->camera.data[1]));
+
+  for (int i = 1; i < (int) ((map->frames.size())) && i < min_frame_to_solve;
+      ++i) {
+    auto f = &(map->frames[i]);
+    if (!frame_set_.count(f))
+      continue;
+
+    problem_->SetParameterBlockConstant(f->translation());
+    problem_->SetParameterBlockConstant(f->rotation());
+  }
+  if (min_frame_to_solve >= 0) {
+    for (const auto& point : point_set_) {
+      if (point->last_frame() >= min_frame_to_solve)
+        continue;
+
+      problem_->SetParameterBlockConstant(point->location());
+    }
+  }
+}
+
+bool Slam::SetupProblem(int min_frame_to_solve,
+                        LocalMap* map) {
   // Create residuals for each observation in the bundle adjustment problem. The
   // parameters for cameras and points are added automatically.
-  ceres::Problem problem;
-  ceres::Solver::Options options;
+  problem_.reset(new ceres::Problem);
+  frame_set_.clear();
+  point_set_.clear();
 
-  const int frame = map->frames.size() - 1;
+  /*
+   * 0.01 = focal 0.860662 r1 -0.061787 r2 0.000518
+Iterations: 9078, error 0.018367
 
-  set<Frame*> frame_set;
-  set<TrackedPoint*> point_set;
+real  1m33.450s
+user  2m1.368s
+sys 0m2.366s
+   *
+   *0.015 = focal 0.946058 r1 -0.047019 r2 -0.009049
+Iterations: 6844, error 0.018339
 
-  auto loss = new ceres::CauchyLoss(.02);
+real  0m34.897s
+user  0m49.609s
+sys 0m0.655s
+   *
+   * 0.02 = focal 1.005811 r1 -0.056277 r2 0.000253
+Iterations: 7185, error 0.019540
+
+real  0m28.428s
+user  0m41.957s
+sys 0m0.620s
+   * and lost track.
+   */
+
+  auto loss = new ceres::CauchyLoss(.015);
   //auto loss = new ceres::HuberLoss(0.02);
-
   for (auto& point : map->points) {
     if (point.observations_.size() < 2)
       continue;
@@ -184,90 +258,51 @@ void RunSlam(LocalMap* map, int min_frame_to_solve) {
           new ceres::AutoDiffCostFunction<ReprojectionError, 2, 1, 2, 4, 3, 4>(
               new ReprojectionError(o.pt(0), o.pt(1)));
 
-      problem.AddResidualBlock(cost_function,
-          loss /* squared loss */ ,
-          &(map->camera.data[0]),
-          &(map->camera.data[1]),
-          map->frames[o.frame_ref].rotation(),
-          map->frames[o.frame_ref].translation(),
-          point.location());
+      problem_->AddResidualBlock(cost_function,
+                                loss /* squared loss */,
+                                &(map->camera.data[0]),
+                                &(map->camera.data[1]),
+                                map->frames[o.frame_ref].rotation(),
+                                map->frames[o.frame_ref].translation(),
+                                point.location());
       Frame* f = &(map->frames[o.frame_ref]);
-      frame_set.insert(f);
+      frame_set_.insert(f);
     }
-    point_set.insert(&point);
+    point_set_.insert(&point);
   }
 
-  if (frame_set.size() < 2)
+  if (frame_set_.size() < 2)
+    return false;
+
+  return true;
+}
+
+void Slam::Run(LocalMap* map, int min_frame_to_solve) {
+  // Create residuals for each observation in the bundle adjustment problem. The
+  // parameters for cameras and points are added automatically.
+
+  ceres::Solver::Options options;
+  if (!SetupProblem(min_frame_to_solve, map))
     return;
 
-#if 0
-  options.use_inner_iterations = true;
-#if 0
-  options.inner_iteration_ordering =
-      new ceres::ParameterBlockOrdering;
-  for (auto& p : point_set) {
-    options.inner_iteration_ordering->AddElementToGroup(
-        p->location(), 0);
-  }
-#endif
-#endif
+  const int frame = map->frames.size() - 1;
 
-#if 1
   ceres::ParameterBlockOrdering* ordering =
       new ceres::ParameterBlockOrdering;
-
-  for (auto p : point_set) {
+  for (auto p : point_set_) {
     ordering->AddElementToGroup(p->location(), 0);
   }
-  for (auto frame : frame_set) {
+  for (auto frame : frame_set_) {
     ordering->AddElementToGroup(frame->translation(), 1);
     ordering->AddElementToGroup(frame->rotation(), 2);
   }
   ordering->AddElementToGroup(&(map->camera.data[0]), 3);
   ordering->AddElementToGroup(&(map->camera.data[1]), 4);
+
   options.linear_solver_ordering = ordering;
-#endif
 
-  ceres::LocalParameterization* quaternion_parameterization =
-      new ceres::QuaternionParameterization;
-  for (auto frame : frame_set) {
-    problem.SetParameterization(frame->rotation(),
-        quaternion_parameterization);
-  }
-#if 0
-  auto homogenous = new HomogenousParameterization;
-  for (auto& pt : point_set) {
-    problem.SetParameterization(pt->location(), homogenous);
-  }
-#endif
-
-  problem.SetParameterBlockConstant(map->frames[0].translation());
-  problem.SetParameterBlockConstant(map->frames[0].rotation());
-  if (map->camera.data[0] < 0.3)
-    map->camera.data[0] = 1;
-  if (map->camera.data[0] > 3)
-      map->camera.data[0] = 1;
-  if (frame < 40 || min_frame_to_solve > 0)
-    problem.SetParameterBlockConstant(&(map->camera.data[0]));
-  if (frame < 50 || min_frame_to_solve > 0)
-    problem.SetParameterBlockConstant(&(map->camera.data[1]));
-
-  for (int i = 1; i < (int)map->frames.size() && i < min_frame_to_solve; ++i) {
-    auto f = &(map->frames[i]);
-    if (!frame_set.count(f))
-      continue;
-    problem.SetParameterBlockConstant(f->translation());
-    problem.SetParameterBlockConstant(f->rotation());
-  }
-
-  if (min_frame_to_solve >= 0) {
-    for (const auto& point : point_set) {
-      if (point->last_frame() >= min_frame_to_solve)
-        continue;
-      problem.SetParameterBlockConstant(
-          point->location());
-    }
-  }
+  SetupParameterization();
+  SetupConstantBlocks(frame, min_frame_to_solve, map);
 
   options.linear_solver_type = ceres::ITERATIVE_SCHUR;
   options.linear_solver_type = ceres::DENSE_SCHUR;
@@ -277,18 +312,24 @@ void RunSlam(LocalMap* map, int min_frame_to_solve) {
   options.max_num_iterations = 150;
   if (min_frame_to_solve < 0)
     options.max_num_iterations = 1500;
-  options.function_tolerance = 1e-8;
+  options.function_tolerance = 1e-6;
   //  if (frames > 15) {
   //  options.use_nonmonotonic_steps = true;
   //  }
   options.use_block_amd = true;
   options.num_threads = 3;
-  options.parameter_tolerance = 1e-9;
+  //options.parameter_tolerance = 1e-9;
 
   ceres::Solver::Summary summary;
-  ceres::Solve(options, &problem, &summary);
-  std::cout << summary.FullReport() << "\n";
+  ceres::Solve(options, problem_.get(), &summary);
+  if (min_frame_to_solve < 0)
+    std::cout << summary.FullReport() << "\n";
 
+  iterations_ += summary.iterations.size();
+  error_ = summary.final_cost;
+}
+
+void Slam::ReprojectMap(LocalMap* map) {
   // Update observation error for each point.
   for (auto& point : map->points) {
     point.location_.normalize();

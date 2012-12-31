@@ -348,6 +348,7 @@ int main(int argc, char*argv[]) {
   LocalMap map;
   ImageProc proc;
 
+  Slam slam;
   while (vid.read(img)) {
     frame++;
 
@@ -398,23 +399,28 @@ int main(int argc, char*argv[]) {
 
     cv::imshow( "Display window", out);
 
-    int mod = 1;
-    if (frame > 10)
-      mod = 6;
-    if (frame > 50)
-      mod = 15;
+    int mod = 5;
 
-
-
-    RunSlam(&map, frame - 1);
+    slam.Run(&map, frame - 1);
+    slam.ReprojectMap(&map);
     map.Clean();
 
     if ((frame % mod) == 0) {
-      RunSlam(&map, -1);
+      slam.Run(&map, -1);
+      slam.ReprojectMap(&map);
       map.Clean();
-      DumpMap(&map);
-      cv::waitKey(0);
+
+      //DumpMap(&map);
+      //cv::waitKey(0);
     }
+    if (frame > 100)
+      break;
   }
+
+  DumpMap(&map);
+
+  printf("Iterations: %d, error %f\n",
+         slam.iterations(),
+         slam.error());
   return 0;
 }
