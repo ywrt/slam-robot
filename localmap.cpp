@@ -49,7 +49,7 @@ int LocalMap::AddFrame() {
          ++err_hist[(int)err];
        }
 
-       if (err < 7)
+       if (err < 5)
          continue;
        printf("frame %3d : (matches %d) [%7.3f %7.3f] (%7.2f,%7.2f) -> %.2f\n",
            o.frame_ref,

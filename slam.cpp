@@ -175,6 +175,7 @@ void Slam::SetupParameterization() {
 
 void Slam::SetupConstantBlocks(const int frame,
                          int min_frame_to_solve,
+                         bool solve_camera,
                          LocalMap* map) {
   problem_->SetParameterBlockConstant(map->frames[0].translation());
   problem_->SetParameterBlockConstant(map->frames[0].rotation());
@@ -184,11 +185,10 @@ void Slam::SetupConstantBlocks(const int frame,
   if (map->camera.data[0] > 3)
     map->camera.data[0] = 1;
 
-  const bool fixed_intrinsics = true;
-  if (frame < 95 || min_frame_to_solve > 0 || fixed_intrinsics)
+  if (!solve_camera)
     problem_->SetParameterBlockConstant(&(map->camera.data[0]));
 
-  if (frame < 95 || min_frame_to_solve > 0 || fixed_intrinsics)
+  if (!solve_camera)
     problem_->SetParameterBlockConstant(&(map->camera.data[1]));
 
   for (int i = 1; i < (int) ((map->frames.size())) && i < min_frame_to_solve;
@@ -277,7 +277,9 @@ sys 0m0.620s
   return true;
 }
 
-void Slam::Run(LocalMap* map, int min_frame_to_solve) {
+void Slam::Run(LocalMap* map,
+               int min_frame_to_solve,
+               bool solve_camera) {
   // Create residuals for each observation in the bundle adjustment problem. The
   // parameters for cameras and points are added automatically.
 
@@ -302,7 +304,8 @@ void Slam::Run(LocalMap* map, int min_frame_to_solve) {
   options.linear_solver_ordering = ordering;
 
   SetupParameterization();
-  SetupConstantBlocks(frame, min_frame_to_solve, map);
+  SetupConstantBlocks(frame, min_frame_to_solve,
+                      solve_camera, map);
 
   options.linear_solver_type = ceres::ITERATIVE_SCHUR;
   options.linear_solver_type = ceres::DENSE_SCHUR;
@@ -313,6 +316,8 @@ void Slam::Run(LocalMap* map, int min_frame_to_solve) {
   if (min_frame_to_solve < 0)
     options.max_num_iterations = 1500;
   options.function_tolerance = 1e-6;
+  if (solve_camera)
+    options.function_tolerance = 1e-9;
   //  if (frames > 15) {
   //  options.use_nonmonotonic_steps = true;
   //  }

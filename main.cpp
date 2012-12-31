@@ -148,7 +148,11 @@ void DumpMap(LocalMap* map) {
 struct  Tracking {
   Tracking() :
     curr(new OctaveSet),
-    prev(new OctaveSet) {}
+    prev {NULL, } {
+      for (int i = 0; i < kSearchFrames; ++i) {
+        prev[i] = new OctaveSet;
+      }
+    }
 
   void ComputeHomography(const Frame& f1, const Frame& f2, Matrix3d* homog) {
     Matrix3d rotate;
@@ -186,8 +190,7 @@ struct  Tracking {
   int UpdateCorners(LocalMap* map, int frame_num) {
     Matrix3d homography[3];
 
-    const int search_frames = 1;
-    for (int i = 0; i < search_frames; ++i) {
+    for (int i = 0; i < kSearchFrames; ++i) {
       if (i >= frame_num)
         continue;
       const Frame& f2 = map->frames[frame_num];
@@ -197,10 +200,20 @@ struct  Tracking {
       cout << homography[i] << endl;
     }
 
+    int searched = 0;
+    int updated = 0;
     for (auto& point : map->points) {
-      if ((frame_num - point.last_frame()) > search_frames)
+      if (point.bad_)
         continue;
-      CHECK_LT(frame_num - point.last_frame() - 1, search_frames);
+      int s = frame_num - point.last_frame();
+      if (s > kSearchFrames)
+        continue;
+
+      CHECK_GT(3, s);
+
+      ++searched;
+
+      CHECK_LT(frame_num - point.last_frame() - 1, kSearchFrames);
       CHECK_GE(frame_num - point.last_frame() - 1, 0);
       const Matrix3d& homog = homography[frame_num - point.last_frame() - 1];
 
@@ -209,7 +222,7 @@ struct  Tracking {
       location = lp;
 
       FPos fp = curr->UpdatePosition(
-          *prev,
+          *prev[s - 1],
           vectorToFPos(location),
           vectorToFPos(lp));
       if (fp.isInvalid())
@@ -219,6 +232,7 @@ struct  Tracking {
       o.frame_ref = frame_num;
       o.pt = fposToVector(fp);
       point.observations_.push_back(o);
+      ++updated;
     }
 #if 0
     for (int i = 0; i < 4; ++i) {
@@ -230,12 +244,12 @@ struct  Tracking {
     }
 #endif
 
+
+    printf("Searched %d, updated %d\n", searched, updated);
     return 0;
   }
 
   void FindNewCorners(LocalMap* map, int frame_num) {
-    printf("RefreshCorners\n");
-
     // Mask out areas where we already have corners.
     const int grid_size = 24;
     Grid grid(grid_size, grid_size);
@@ -269,7 +283,8 @@ struct  Tracking {
 
       int score = curr->CheckCorner(fp);
      // printf("score: %d\n", score);
-      if ( score < 2000)
+      // TODO: Extract magic.
+      if (score < 2000)
         continue;
 
       map->points.push_back(TrackedPoint());
@@ -302,13 +317,18 @@ struct  Tracking {
   }
 
   void flip() {
-    auto t = curr;
-    curr = prev;
-    prev = t;
+
+    auto t = prev[kSearchFrames - 1];
+    for (int i = 1; i < kSearchFrames; ++i) {
+      prev[i] = prev[i - 1];
+    }
+    prev[0] = curr;
+    curr = t;
   }
+  static const int kSearchFrames = 1;
 
   OctaveSet* curr;
-  OctaveSet* prev;
+  OctaveSet* prev[kSearchFrames];
 };
 
 
@@ -393,30 +413,33 @@ int main(int argc, char*argv[]) {
       DrawCross(&out, point.last_point(), 5, Scalar(0,0,255));
     }
 
-    cv::imshow( "Display window", out);
+    cv::imshow("Display window", out);
 
     int mod = 5;
 
-    slam.Run(&map, frame - 2);
+    slam.Run(&map, frame - 2, false);
     slam.ReprojectMap(&map);
     map.Clean();
 
     if ((frame % mod) == 0) {
-      slam.Run(&map, -1);
+      slam.Run(&map, -1, false);
       slam.ReprojectMap(&map);
       map.Clean();
 
       //DumpMap(&map);
       //cv::waitKey(0);
     }
-    if (frame > 100)
+    if (frame >= 100)
       break;
+    //cv::waitKey(0);
   }
+  //slam.Run(&map, -1, true);
 
   DumpMap(&map);
 
   printf("Iterations: %d, error %f\n",
          slam.iterations(),
          slam.error());
+  printf("width %d, height %d\n", grey.cols, grey.rows);
   return 0;
 }

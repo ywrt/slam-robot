@@ -23,7 +23,9 @@ class Slam {
  public:
   Slam() : iterations_(0), error_(0) {}
 
-  void Run(LocalMap* map, int min_frame_to_solve);
+  void Run(LocalMap* map,
+           int min_frame_to_solve,
+           bool solve_camera);
   // TODO: This belong in LocalMap which means the projection
   // should be lifted out.
   void ReprojectMap(LocalMap* map);
@@ -39,6 +41,7 @@ class Slam {
   void SetupParameterization();
   void SetupConstantBlocks(const int frame,
                            int min_frame_to_solve,
+                           bool solve_camera,
                            LocalMap* map);
   bool SetupProblem(int min_frame_to_solve, LocalMap* map);
 

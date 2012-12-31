@@ -122,9 +122,10 @@ FPos OctaveSet::UpdatePosition(const OctaveSet& pimage,
   Pos rev = pimage.octave0_->pos(rfp);
   Pos delta(abs(fwd.x - rev.x), abs(fwd.y - rev.y));
 
+  // TODO: Extract magic number.
   if ((delta.x + delta.y) > 0) {
     // Update failed.
-    LOG("updatePos failed: (%3d,%3d) -> (%3d,%3d) : (%-3d,%-3d) [%f,%f]\n",
+    LOG("UpdatePos failed: (%3d,%3d) -> (%3d,%3d) : (%-3d,%-3d) [%f,%f]\n",
         fwd.x, fwd.y, rev.x, rev.y,
         (fwd.x - rev.x), (fwd.y - rev.y),
         rfp.x, rfp.y);
@@ -133,10 +134,12 @@ FPos OctaveSet::UpdatePosition(const OctaveSet& pimage,
   }
 
   // Values computed from histograms.
-  if (sumb > 18000 || suma > 18000)
+  // TODO: Extract magic number.
+  if (sumb > 18000 || suma > 18000) {
+    LOG("suma %6d, sumb %6d\n", suma, sumb);
     return FPos::invalid();
+  }
 
-  //LOG("sum %5d %5d : %d,%d\n", suma, sumb, delta.x, delta.y);
   return fp;
 }
 

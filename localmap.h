@@ -34,7 +34,7 @@ struct Frame {
 
 // Camera intrinsics.
 struct Camera {
-  Camera() : data {1.0, -0.03, 0} {}
+  Camera() : data {0.5625, -0.01, 0} {}
 
   double* scale() { return &data[0]; }
   const double* scale() const { return &data[0]; }
