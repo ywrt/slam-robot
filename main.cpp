@@ -356,25 +356,6 @@ int main(int argc, char*argv[]) {
     cv::resize(t, out, Size(t.cols / 2, t.rows / 2));
     cv::cvtColor(out, grey, CV_RGB2GRAY);
 
-    std::vector<KeyPoint> keypoints;
-    Mat descriptors;
-
-    detector->detect(grey, keypoints);
-    extractor.compute(grey, keypoints, descriptors);
-
-    vector<Vector2d> normed_points;
-    Vector2d scale;
-    scale[0] = out.cols;
-    scale[1] = out.rows;
-    for (auto& k : keypoints) {
-      Vector2d p;
-      p[0] = k.pt.x;
-      p[1] = k.pt.y;
-
-      p = 1 - 2 * p.array() / scale.array();
-      normed_points.push_back(p);
-    }
-
     map.AddFrame(frame);
 
     proc.ProcessFrame(grey, frame, &map);
@@ -390,7 +371,6 @@ int main(int argc, char*argv[]) {
       }
       int num = point.observations_.size();
       for (int i = 0; i < (num - 1); ++i) {
-
         DrawLine(&out, point.observations_[i].pt,
             point.observations_[i+1].pt, Scalar(0,0,0));
       }
