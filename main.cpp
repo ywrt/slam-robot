@@ -325,7 +325,7 @@ struct  Tracking {
     prev[0] = curr;
     curr = t;
   }
-  static const int kSearchFrames = 1;
+  static const int kSearchFrames = 2;
 
   OctaveSet* curr;
   OctaveSet* prev[kSearchFrames];
@@ -440,6 +440,5 @@ int main(int argc, char*argv[]) {
   printf("Iterations: %d, error %f\n",
          slam.iterations(),
          slam.error());
-  printf("width %d, height %d\n", grey.cols, grey.rows);
   return 0;
 }
