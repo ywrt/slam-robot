@@ -18,8 +18,9 @@ OctaveSet::OctaveSet() :
 octave0_(new Octave()),
 octave1_(new Octave()),
 octave2_(new Octave()),
-octave3_(new Octave())
-{}
+octave3_(new Octave()) {
+  Clear();
+}
 
 OctaveSet::~OctaveSet() {
   delete octave3_;
@@ -63,6 +64,12 @@ FPos OctaveSet::UpdatePosition(const PatchSet& ps,
   return fp;
 }
 
+int clamp(int val) {
+  val /= 1000;
+  if (val >= OctaveSet::kHistSize)
+    return OctaveSet::kHistSize - 1;
+  return val;
+}
 
 // 'pos' is the estimated position in the current octaveset needing
 // refinement.
@@ -79,12 +86,16 @@ FPos OctaveSet::UpdatePosition(const OctaveSet& pimage,
   int suma;
   pimage.octave3_->FillPatch(patch, ppos);
   fp = octave3_->SearchPosition(fp, patch, 2, &suma);
+  fwd_hist[3][clamp(suma)]++;
   pimage.octave2_->FillPatch(patch, ppos);
   fp = octave2_->SearchPosition(fp, patch, 2, &suma);
+  fwd_hist[2][clamp(suma)]++;
   pimage.octave1_->FillPatch(patch, ppos);
   fp = octave1_->SearchPosition(fp, patch, 2, &suma);
+  fwd_hist[1][clamp(suma)]++;
   pimage.octave0_->FillPatch(patch, ppos);
   fp = octave0_->SearchPosition(fp, patch, 2, &suma);
+  fwd_hist[0][clamp(suma)]++;
   // Now search in the previous image.
 
   int sumb;
@@ -96,12 +107,16 @@ FPos OctaveSet::UpdatePosition(const OctaveSet& pimage,
   }
   octave3_->FillPatch(patch, fp);
   rfp = pimage.octave3_->SearchPosition(rfp, patch, 2, &sumb);
+  rev_hist[3][clamp(suma)]++;
   octave2_->FillPatch(patch, fp);
   rfp = pimage.octave2_->SearchPosition(rfp, patch, 2, &sumb);
+  rev_hist[2][clamp(suma)]++;
   octave1_->FillPatch(patch, fp);
   rfp = pimage.octave1_->SearchPosition(rfp, patch, 2, &sumb);
+  rev_hist[1][clamp(suma)]++;
   octave0_->FillPatch(patch, fp);
   rfp = pimage.octave0_->SearchPosition(rfp, patch, 2, &sumb);
+  rev_hist[0][clamp(suma)]++;
 
   Pos fwd = pimage.octave0_->pos(ppos);
   Pos rev = pimage.octave0_->pos(rfp);
@@ -116,6 +131,10 @@ FPos OctaveSet::UpdatePosition(const OctaveSet& pimage,
 
     return FPos::invalid();
   }
+
+  // Values computed from histograms.
+  if (sumb > 18000 || suma > 18000)
+    return FPos::invalid();
 
   //LOG("sum %5d %5d : %d,%d\n", suma, sumb, delta.x, delta.y);
   return fp;

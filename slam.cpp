@@ -185,10 +185,10 @@ void Slam::SetupConstantBlocks(const int frame,
     map->camera.data[0] = 1;
 
   const bool fixed_intrinsics = true;
-  if (frame < 40 || min_frame_to_solve > 0 || fixed_intrinsics)
+  if (frame < 95 || min_frame_to_solve > 0 || fixed_intrinsics)
     problem_->SetParameterBlockConstant(&(map->camera.data[0]));
 
-  if (frame < 50 || min_frame_to_solve > 0 || fixed_intrinsics)
+  if (frame < 95 || min_frame_to_solve > 0 || fixed_intrinsics)
     problem_->SetParameterBlockConstant(&(map->camera.data[1]));
 
   for (int i = 1; i < (int) ((map->frames.size())) && i < min_frame_to_solve;

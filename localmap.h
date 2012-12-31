@@ -36,7 +36,6 @@ struct Frame {
 struct Camera {
   Camera() : data {1.0, -0.03, 0} {}
 
-
   double* scale() { return &data[0]; }
   const double* scale() const { return &data[0]; }
   double* instrinsics() { return &data[1]; }
@@ -129,7 +128,10 @@ struct TrackedPoint {
 // Description of the known world.
 struct LocalMap {
   // Add a new (empty) frame to the map.
-  void AddFrame(int frame_num);
+  // Initializes the new frame position by linear interpolation
+  // from the previous 2 frames.
+  // Returns the frame number.
+  int AddFrame();
 
   // Discards errored observations.
   void Clean();

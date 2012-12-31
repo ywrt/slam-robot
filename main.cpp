@@ -43,7 +43,7 @@ using namespace Eigen;
 // TODO: Change FPos to use doubles.
 // TODO: Make it real time
 // TODO: Use pose estimate for homography estimates.
-
+// TODO: OMPL == Open Motion Planning Library.
 
 void UpdateMap(LocalMap* map,
     int frame,
@@ -51,7 +51,6 @@ void UpdateMap(LocalMap* map,
     const Mat& descriptors) {
 
   CHECK_EQ(key_points.size(), descriptors.rows);
-
 
   int hist[512] = {0,};
 
@@ -146,8 +145,8 @@ void DumpMap(LocalMap* map) {
          map->camera.data[2]);
 }
 
-struct  ImageProc {
-  ImageProc() :
+struct  Tracking {
+  Tracking() :
     curr(new OctaveSet),
     prev(new OctaveSet) {}
 
@@ -221,10 +220,20 @@ struct  ImageProc {
       o.pt = fposToVector(fp);
       point.observations_.push_back(o);
     }
+#if 0
+    for (int i = 0; i < 4; ++i) {
+      printf("Octave %d\n", i);
+      for (int j = 0; j < OctaveSet::kHistSize; ++j) {
+        printf("%2d: %5d %5d\n",
+               j, curr->fwd_hist[i][j], curr->rev_hist[i][j]);
+      }
+    }
+#endif
+
     return 0;
   }
 
-  void RefreshCorners(LocalMap* map, int frame_num) {
+  void FindNewCorners(LocalMap* map, int frame_num) {
     printf("RefreshCorners\n");
 
     // Mask out areas where we already have corners.
@@ -279,14 +288,17 @@ struct  ImageProc {
   }
 
 
-  void ProcessFrame(const Mat& mat, int frame_num, LocalMap* map) {
-    curr->FillOctaves((uint8_t*)mat.data, mat.cols, mat.rows);
+  int ProcessFrame(uint8_t* data, int width, int height, LocalMap* map) {
+    int frame_num = map->AddFrame();
+    curr->FillOctaves(data, width, height);
     // fill_pose(cimage->pose());
 
     UpdateCorners(map, frame_num);
+    FindNewCorners(map, frame_num);
 
-    RefreshCorners(map, frame_num);
     flip();
+
+    return frame_num;
   }
 
   void flip() {
@@ -346,7 +358,7 @@ int main(int argc, char*argv[]) {
   int frame = -1;
 
   LocalMap map;
-  ImageProc proc;
+  Tracking tracking;
 
   Slam slam;
   while (vid.read(img)) {
@@ -354,11 +366,15 @@ int main(int argc, char*argv[]) {
 
     cv::transpose(img, t);
     cv::resize(t, out, Size(t.cols / 2, t.rows / 2));
-    cv::cvtColor(out, grey, CV_RGB2GRAY);
+    cv::cvtColor(t, grey, CV_RGB2GRAY);
 
-    map.AddFrame(frame);
+    int frame_num = tracking.ProcessFrame((uint8_t*)grey.data,
+                                          grey.cols,
+                                          grey.rows,
+                                          &map);
 
-    proc.ProcessFrame(grey, frame, &map);
+    CHECK_EQ(frame_num, frame);
+
 
     //UpdateMap(&map, frame, normed_points, descriptors);
 
@@ -381,7 +397,7 @@ int main(int argc, char*argv[]) {
 
     int mod = 5;
 
-    slam.Run(&map, frame - 1);
+    slam.Run(&map, frame - 2);
     slam.ReprojectMap(&map);
     map.Clean();
 

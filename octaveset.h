@@ -26,14 +26,7 @@ struct PatchSet {
 
 
 class OctaveSet {
-  static const int kSectors = 14;
-  Octave* octave0_;
-  Octave* octave1_;
-  Octave* octave2_;
-  Octave* octave3_;
-
-  float pose_[16];
-public:
+ public:
   OctaveSet();
   ~OctaveSet();
 
@@ -52,6 +45,26 @@ public:
 
   int CheckCorner(const FPos& pos);
 
+  const static int kHistSize = 20;
+  mutable int fwd_hist[4][kHistSize];
+  mutable int rev_hist[4][kHistSize];
+
+ private:
+  void Clear() {
+    for (int i = 0;i < 4; ++i) {
+      for (int j = 0; j < kHistSize; ++j) {
+        fwd_hist[i][j] = 0;
+        rev_hist[i][j] = 0;
+      }
+    }
+  }
+  static const int kSectors = 14;
+  Octave* octave0_;
+  Octave* octave1_;
+  Octave* octave2_;
+  Octave* octave3_;
+
+  float pose_[16];
 };
 
 

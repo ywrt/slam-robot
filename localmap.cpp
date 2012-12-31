@@ -9,8 +9,8 @@
 
 #include "localmap.h"
 
-void LocalMap::AddFrame(int frame_num) {
-  CHECK_EQ(frames.size(), frame_num);
+int LocalMap::AddFrame() {
+  int frame_num = frames.size();
 
   if (frames.size() > 3) {
     auto s = frames.size();
@@ -19,7 +19,6 @@ void LocalMap::AddFrame(int frame_num) {
     Vector3d motion = f1.translation_ - f2.translation_;
     if (motion.norm() > 1)
       motion /= motion.norm();
-
     Frame f = f1;
     f.translation_ += motion;
     frames.push_back(f);
@@ -29,6 +28,8 @@ void LocalMap::AddFrame(int frame_num) {
   } else {
     frames.push_back(Frame());
   }
+
+  return frame_num;
 }
 
  void LocalMap::Clean() {
