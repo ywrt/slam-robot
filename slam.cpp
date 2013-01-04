@@ -218,31 +218,7 @@ bool Slam::SetupProblem(int min_frame_to_solve,
   frame_set_.clear();
   point_set_.clear();
 
-  /*
-   * 0.01 = focal 0.860662 r1 -0.061787 r2 0.000518
-Iterations: 9078, error 0.018367
-
-real  1m33.450s
-user  2m1.368s
-sys 0m2.366s
-   *
-   *0.015 = focal 0.946058 r1 -0.047019 r2 -0.009049
-Iterations: 6844, error 0.018339
-
-real  0m34.897s
-user  0m49.609s
-sys 0m0.655s
-   *
-   * 0.02 = focal 1.005811 r1 -0.056277 r2 0.000253
-Iterations: 7185, error 0.019540
-
-real  0m28.428s
-user  0m41.957s
-sys 0m0.620s
-   * and lost track.
-   */
-
-  auto loss = new ceres::CauchyLoss(.015);
+  auto loss = new ceres::CauchyLoss(.01);
   //auto loss = new ceres::HuberLoss(0.02);
   for (auto& point : map->points) {
     if (point.observations_.size() < 2)

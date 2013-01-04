@@ -1,13 +1,13 @@
 
 CFLAGS=-g
 OPT=-O3 -ffast-math -msse4.2 
-CXXFLAGS = -fmessage-length=0 -Ieigen-eigen-304c88ca3aff -std=c++11 -g -Wall $(OPT) -I../Eigen
+CXXFLAGS = -fmessage-length=0 -Ieigen-eigen-304c88ca3aff -std=c++11 -g -Wall $(OPT) -I../Eigen -I/usr/include/ompl
 LDFLAGS = 
-OBJS = octave.o octaveset.o grid.o slam.o localmap.o
+OBJS = octave.o octaveset.o grid.o slam.o localmap.o planner.o
 
 LIBS = -lceres -lopencv_highgui -lopencv_core -lopencv_features2d \
        -lopencv_flann -lopencv_imgproc -lglog -lgomp -lpthread \
-       -lprotobuf -lcxsparse  -lblas -llapack -lcholmod
+       -lprotobuf -lcxsparse  -lblas -llapack -lcholmod -lompl
 
 TARGET = slam
 DEPS = make.deps
