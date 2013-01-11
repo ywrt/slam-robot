@@ -20,6 +20,22 @@
 
 using namespace Eigen;
 
+class Planner {
+public:
+  static Vector2d rotate_left(const Vector2d& p) {
+    Vector2d r;
+    r << -p(1), p(0);
+    return r;
+  }
+
+  static Vector2d rotate_right(const Vector2d& p) {
+    Vector2d r;
+    r << p(1), -p(0);
+    return r;
+  }
+
+};
+
 void planWithSimpleSetup(void);
 
 

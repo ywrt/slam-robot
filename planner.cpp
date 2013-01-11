@@ -13,305 +13,239 @@
 #include <eigen3/Eigen/Eigen>
 
 
-#include <ompl/base/State.h>
-#include <ompl/control/SimpleSetup.h>
-#include <ompl/control/spaces/RealVectorControlSpace.h>
-#include <ompl/base/spaces/SE3StateSpace.h>
-#include <ompl/base/spaces/SE2StateSpace.h>
-#include <ompl/base/spaces/SO2StateSpace.h>
-#include <ompl/base/spaces/DubinsStateSpace.h>
-#include <ompl/control/ODESolver.h>
-#include <ompl/control/planners/rrt/RRT.h>
-#include <ompl/control/planners/kpiece/KPIECE1.h>
-#include <ompl/datastructures/NearestNeighborsSqrtApprox.h>
-
-namespace ob = ompl::base;
-namespace og = ompl::geometric;
-namespace oc = ompl::control;
+#include "opencv2/opencv.hpp"
+#include "opencv2/core/core.hpp"
+#include "opencv2/features2d/features2d.hpp"
+#include "opencv2/highgui/highgui.hpp"
 
 using namespace std;
+using namespace Eigen;
 
-bool isStateValid(const ob::State *state) {
-  return true;
-}
-
-void postPropagate(const oc::Control* control,
-                   const ob::State* state) {
-#if 0
-  ob::SO2StateSpace SO2;
-  // Ensure that the car's resulting orientation lies between 0 and 2*pi.
-  ob::SE2StateSpace::StateType& s =
-      *result->as<ob::SE2StateSpace::StateType>();
-  SO2.enforceBounds(s[1]);
-#endif
-}
-
-
-void SimpleCarODE(const oc::ODESolver::StateType& q,
-                  const oc::Control* c,
-                  oc::ODESolver::StateType& qdot) {
-  // Retrieve control values. Velocity is the first entry, steering angle is second.
-  const double *u =
-      c->as<oc::RealVectorControlSpace::ControlType>()->values;
-  const double velocity = u[0];
-  const double steeringAngle = u[1];
-  // Retrieve the current orientation of the car. The memory for ompl::base::SE2StateSpace is mapped as:
-  // 0: x
-  // 1: y
-  // 2: theta
-  const double theta = q[2];
-  // Ensure qdot is the same size as q. Zero out all values.
-  qdot.resize(q.size(), 0);
-  qdot[0] = velocity * cos(theta); // x-dot
-  qdot[1] = velocity * sin(theta); // y-dot
-  qdot[2] = velocity * tan(steeringAngle); // theta-dot
-}
-
-void planOMPLWithSimpleSetup(void) {
-  // construct the state space we are planning in
-  ob::StateSpacePtr spacex(new ob::DubinsStateSpace());
-  ob::RealVectorBounds bounds(2);
-  bounds.setLow(-1);
-  bounds.setHigh(1);
-  spacex->as<ob::SE2StateSpace>()->setBounds(bounds);
-
-  oc::ControlSpacePtr control(
-      new oc::RealVectorControlSpace(spacex, 2));
-  control->as<oc::RealVectorControlSpace>()->setBounds(bounds);
-
-  oc::SimpleSetup ss(control);
-  ss.setStateValidityChecker(boost::bind(&isStateValid, _1));
-
-  // SpaceInformationPtr is defined as the variable si.
-  oc::ODESolver* odeSolver(
-      new ompl::control::ODEBasicSolver<>(
-          ss.getSpaceInformation(), &SimpleCarODE));
-
-  ss.setStatePropagator(
-      odeSolver->getStatePropagator(&postPropagate));
-
-  ob::ScopedState<ob::SE2StateSpace> start(spacex);
-  start->setX(-0.5);
-  start->setY(0.0);
-  start->setYaw(0.0);
-
-  ob::ScopedState<ob::SE2StateSpace> goal(spacex);
-  goal->setX(0.0);
-  goal->setY(0.5);
-  goal->setYaw(0.0);
-
-  ss.setStartAndGoalStates(start, goal, 0.05);
-
-  //auto planner = new oc::KPIECE1(ss.getSpaceInformation());
-  //planner->setNearestNeighbors<ompl::NearestNeighborsSqrtApprox>();
-  //ss.setPlanner(ompl::base::PlannerPtr(planner));
-
-  bool solved = ss.solve(10.0);
-
-  if (solved) {
-    std::cout << "Found solution:" << std::endl;
-   // print the path to screen
- //  ss.simplifySolution();
-   ss.getSolutionPath().print(std::cout);
-  }
-}
-
-std::string string_format(const std::string &fmt, ...) {
-    int size = 100;
-    std::string str;
-    va_list ap;
-    while (1) {
-        str.resize(size);
-        va_start(ap, fmt);
-        int n = vsnprintf((char *)str.c_str(), size, fmt.c_str(), ap);
-        va_end(ap);
-        if (n > -1 && n < size) {
-            str.resize(n);
-            return str;
-        }
-        if (n > -1)
-            size = n + 1;
-        else
-            size *= 2;
-    }
-    return str;
-}
+const double kTurningRadius = 1;
 
 struct State {
   Vector2d pos_;
   double direction_;
-  double velocity_;
-  double steering_;
-  string ToString() const {
-    return string_format(
-        "[pos %5.3f %5.3f dir %5.3f vel %5.3f steer %5.3f]",
-        pos_(0), pos_(1),
-        direction_,
-        velocity_,
-        steering_);
-  }
 };
 
-double clamp(double v, double range) {
-  if (v < -range) v = -range;
-  if (v > range) v = range;
-  return v;
-}
+struct Segment {
+  Segment(double dist, int type) :
+    distance_(dist), type_(type) {}
 
-struct Control {
-  Control() : steering_(0), accel_(0) {}
-  Control(double steering, double accel) :
-    steering_(steering), accel_(accel) {}
-
-  void add(const Control& delta, double scale) {
-    steering_ = clamp(steering_ + scale * delta.steering_, M_PI*.9);
-    accel_ = clamp(accel_ + scale* delta.accel_, 1);
-  }
-  double norm() const {
-    return sqrt(steering_ * steering_ + accel_*accel_);
-  }
-
-  void normalize() {
-    double n = norm();
-    if (n == 0)
-      return;
-    steering_ /= n;
-    accel_ /= n;
-  }
-  double steering_;
-  double accel_;
-
-
-
+  double distance_;  // positive or negative.
+  int type_;  // -1 left, 0 straight, 1 right;
 };
 
+double mod2pi(double a) {
+  while (a < 0) a += 2 * M_PI;
+  while (a > M_PI * 2) a -= 2 * M_PI;
+  return a;
+}
 
+vector<Segment> generate_LSL(const State& curr,
+                             const State& goal,
+                             int parity) {
+  vector<Segment> segments;
 
+  Vector2d offset = Rotation2D<double>(curr.direction_
+                                       + parity * M_PI_2) *
+      Vector2d::UnitX();
+  Vector2d ca = curr.pos_ + kTurningRadius * offset;
 
-State project(const State& current,
-              const Control& control,
-              double step) {
-  State result = current;
-  result.velocity_ += control.accel_ * step;
-  result.steering_ += control.steering_ * step;
+  offset = Rotation2D<double>(goal.direction_
+                              + parity * M_PI_2) *
+      Vector2d::UnitX();
+  Vector2d cb = goal.pos_ + kTurningRadius * offset;
 
-  result.steering_ = clamp(result.steering_, 1);
+  Vector2d heading = cb - ca;
+  double dist = heading.norm();
+  heading.normalize();
 
-  result.direction_ += tan(result.steering_) * result.velocity_;
+  double angle = atan2(heading(1), heading(0));
 
-  while (result.direction_ < -M_PI) result.direction_ += M_PI * 2;
-  while (result.direction_ > +M_PI) result.direction_ -= M_PI * 2;
-
-  result.pos_(0) += cos(result.direction_) * result.velocity_;
-  result.pos_(1) += sin(result.direction_) * result.velocity_;
-
-  return result;
+  // first circle angle.
+  double a1 = angle - curr.direction_;
+  double a2 = goal.direction_ - angle;
+  
+  segments.push_back(Segment(mod2pi(parity * a1), -1 * parity));
+  segments.push_back(Segment(dist, 0));
+  segments.push_back(Segment(mod2pi(parity * a2), -1 * parity));
+  return segments;
 }
 
 
-double distance(const State& s1, const State& s2) {
-  double sum(0);
-  sum += (s1.pos_ - s2.pos_).squaredNorm();
+vector<Segment> generate_LSR(const State& curr,
+                             const State& goal,
+                             int parity) {
+  vector<Segment> segments;
 
-#if 1
-  sum += (s1.velocity_ - s2.velocity_) * (s1.velocity_ - s2.velocity_);
+  Vector2d ca = curr.pos_ + kTurningRadius
+      * (Rotation2D<double>(curr.direction_ + parity * M_PI_2)
+      * Vector2d::UnitX());
 
-  double ddir = s1.direction_ - s2.direction_;
-  while (ddir < -M_PI) ddir += M_PI * 2;
-  while (ddir > +M_PI) ddir -= M_PI * 2;
-  sum += ddir * ddir;
-#endif
+  Vector2d cb = goal.pos_ + kTurningRadius
+        * (Rotation2D<double>(goal.direction_ - parity * M_PI_2)
+        * Vector2d::UnitX());
 
-  //cout << s1.ToString() << " v " << s2.ToString() << " = " << sum << endl;
+  Vector2d heading = cb - ca;
+  double dist = heading.norm();
+  heading.normalize();
+  double angle = atan2(heading(1), heading(0));
 
-  return sum;
+  // There is a triangle formed by the mid-point of the line
+  // between the two centers, one of the centers, and the
+  // tangent. The length of the line between the two centers
+  // is known, as is the radius, so we can compute the angle
+  // between the line joining the centers, and the tangent to
+  // the circles.
+  double theta = asin(kTurningRadius / (dist / 2));
+
+  // Similarly, we can compute the length of the tangent
+  // between the two circles.
+  double tdist = sqrt(dist*dist -
+                          4 * kTurningRadius*kTurningRadius);
+
+  // The heading when the car leaves the circle is then:
+  double angle1 = angle + parity * theta;
+
+  // So the car travels this distance on the first circle
+  // (in radians).
+  double a1 = angle1 - curr.direction_;
+
+  // And then this distance on the second circle.
+  double a2 = angle1 - goal.direction_;
+
+  segments.push_back(Segment(mod2pi(a1 * parity), -1 * parity));
+  segments.push_back(Segment(tdist, 0));
+  segments.push_back(Segment(mod2pi(a2 * parity), 1 * parity));
+  return segments;
 }
 
-double min_distance(const State& current,
-                    const State& goal,
-                    const Control& control,
-                    double step) {
-  State s = current;
-  double dist = distance(current, goal);
-  for (int i = 0; i < 100; ++i) {
-    s = project(s, control, step);
-    double d = distance(s, goal) + (0.05 * i);
-    if (d < dist)
-      dist = d;
-  }
-  return dist;
-}
-
-double deriv(const State& curr,
-             const State& goal,
-             const Control& control,
-             const Control& delta) {
-
-  Control c = control;
-  c.add(delta, 1);
-  double dist = min_distance(curr, goal, control, 1e-2);
-  double min_dist = min_distance(curr, goal, c, 1e-2);
-
-  return dist - min_dist;
-}
-
-Control gradient(const State& curr,
-                 const State& goal,
-                 struct Control& control
-                 ) {
-
-  double h = 1e-3;
-  Control r(0,0);
-  double best = 0;
-  for (int i = -1 ; i < 2; ++i) {
-    for (int j = -1 ; j < 2; ++j) {
-      double d = deriv(curr, goal, control, Control(i*h, j*h));
-      if (d < best)
-        continue;
-      best = d;
-      if (d > 0) {
-        r.steering_ = i;
-        r.accel_ = j;
-      }
+vector<Segment> reverse_path(const vector<Segment>& segments) {
+  vector<Segment> out;
+  for (int i = segments.size() - 1 ; i >= 0 ; --i) {
+    const Segment& s = segments[i];
+    if (s.type_ == 0) {
+      out.push_back(Segment(s.distance_, s.type_));
+    } else {
+      out.push_back(Segment(mod2pi(-segments[i].distance_),
+                            segments[i].type_ * -1));
     }
   }
-  printf("%f, %f -> %f\n", r.steering_, r.accel_, best);
-
-  r.normalize();
-  return r;
+  return out;
 }
 
+vector<Segment> generate_path(const State& curr,
+                              const State& goal,
+                              int type) {
+  switch(type) {
+    case 0:
+      return generate_LSL(curr, goal, 1);
+    case 1:
+      return generate_LSR(curr, goal, 1);
+    case 2:
+      return generate_LSL(curr, goal, -1);
+    case 3:
+      return generate_LSR(curr, goal, -1);
+  }
+}
+
+vector<Vector2d> interpolate_path(const State& curr,
+                           const vector<Segment>& segments,
+                           double step) {
+  State c = curr;
+  vector<Vector2d> path;
+
+  for (auto& s : segments) {
+    printf("%3d : %f\n", s.type_, s.distance_);
+    path.push_back(c.pos_);  // Push start.
+    if (s.type_ == 0) {
+      // Straight line.
+      Vector2d heading =
+          Rotation2D<double>(c.direction_) * Vector2d::UnitX();
+      for (double t = step; t < s.distance_; t += step) {
+        path.push_back(t * heading + c.pos_);
+      }
+      c.pos_ += s.distance_ * heading;
+    } else {
+      // Left or right curve.
+      Vector2d center = c.pos_ + kTurningRadius
+          * (Rotation2D<double>(c.direction_ - s.type_ * M_PI_2)
+          * Vector2d::UnitX());
+      double t1 = c.direction_ - s.type_ * M_PI_2 + M_PI;
+      for (double t = step ; t < s.distance_; t += step) {
+        double angle = t1 - t * s.type_;
+        Vector2d p = center + kTurningRadius *
+            (Rotation2D<double>(angle) * Vector2d::UnitX());
+        path.push_back(p);
+      }
+
+      c.pos_ = center + kTurningRadius *
+          (Rotation2D<double>(t1 - s.distance_ * s.type_)
+                    * Vector2d::UnitX());
+
+      c.direction_ -= s.type_ * s.distance_;
+    }
+  }
+  path.push_back(c.pos_);
+
+  return path;
+}
+
+// project [-10,10] -> [0, mat.rows] etc.
+cv::Point rescale(const cv::Mat& mat, const Vector2d& p) {
+  double x = (p(0) + 10) / 20 * mat.cols;
+  double y = (10 - p(1)) / 20 * mat.rows;
+  return cv::Point(x, y);
+}
+
+void draw(cv::Mat& mat, const vector<Vector2d>& path) {
+
+  printf("[%f, %f] -> [%f, %f]\n",
+         path[0](0),path[0](1),
+         path.back()(0), path.back()(1));
+  for (size_t i = 0; i < path.size() - 1 ; ++i) {
+    const Vector2d& p1 = path[i+0];
+    const Vector2d& p2 = path[i+1];
+
+    cv::Point a1(rescale(mat, p1));
+    cv::Point a2(rescale(mat, p2));
+
+    line(mat, a1, a2, cv::Scalar(255 - i, i, i), 1, 8);
+  }
+
+  cv::imshow("path", mat);
+  cv::waitKey(100);
+}
 
 void planWithSimpleSetup(void) {
   State goal;
-  goal.pos_ << 5,0;
-  goal.velocity_ = 0;
-  goal.direction_ = 0;
+  goal.pos_ << 5,5;
+  goal.direction_ = - M_PI_2 / 2;
 
   State curr;
   curr.pos_ << 0,0;
-  curr.velocity_ = 0;
   curr.direction_ = 0;
+  cv::Mat mat(1024, 1024, CV_8UC3);
 
-  Control c(0,0);
-  for (int i = 0; i < 25; ++i) {
-    Control delta = gradient(curr, goal, c);
+  mat = cv::Scalar(0,0,0);
 
-    c.add(delta, 0.1);
+  vector<Segment> segments = generate_path(curr, goal, 0);
+  vector<Vector2d> path = interpolate_path(curr, segments, 0.1);
+  draw(mat, path);
 
-    curr = project(curr, c, 0.1);
-    printf("%6.3f %6.3f @ vel %4.4f dir %5.2f (dir %6.3f accel %6.3f) [grad dir %f, accel %f]\n",
-           curr.pos_(0), curr.pos_(1),
-           curr.velocity_,
-           curr.direction_,
-           c.steering_,
-           c.accel_,
-           delta.steering_,
-           delta.accel_
-           );
-  }
+  segments = generate_path(curr, goal, 1);
+  path = interpolate_path(curr, segments, 0.1);
+  draw(mat, path);
 
+  segments = generate_path(curr, goal, 2);
+  path = interpolate_path(curr, segments, 0.1);
+  draw(mat, path);
 
+  segments = generate_path(curr, goal, 3);
+  path = interpolate_path(curr, segments, 0.1);
+  draw(mat, path);
+  cv::waitKey(0);
 
 }
 

@@ -40,6 +40,47 @@ class PlannerTest : public ::testing::Test {
   }
 };
 
+TEST_F(PlannerTest, Rotate) {
+  Vector2d v;
+  v << 2, 1;
+
+  v = Planner::rotate_left(v);
+  EXPECT_EQ(-1, v(0));
+  EXPECT_EQ(2, v(1));
+
+  v = Planner::rotate_left(v);
+  EXPECT_EQ(-2, v(0));
+  EXPECT_EQ(-1, v(1));
+
+  v = Planner::rotate_left(v);
+  EXPECT_EQ(1, v(0));
+  EXPECT_EQ(-2, v(1));
+
+  v = Planner::rotate_left(v);
+  EXPECT_EQ(2, v(0));
+  EXPECT_EQ(1, v(1));
+
+  Vector2d r;
+  r = Planner::rotate_left(
+          Planner::rotate_right(v));
+  EXPECT_EQ(r(0), v(0));
+  EXPECT_EQ(r(1), v(1));
+
+  r = Planner::rotate_left(
+          Planner::rotate_left(
+              Planner::rotate_right(
+                  Planner::rotate_right(v))));
+  EXPECT_EQ(r(0), v(0));
+  EXPECT_EQ(r(1), v(1));
+
+  r = Planner::rotate_right(
+          Planner::rotate_right(
+              Planner::rotate_right(v)));
+  Vector2d r1 = Planner::rotate_left(v);
+  EXPECT_EQ(r(0), r1(0));
+  EXPECT_EQ(r(1), r1(1));
+}
+
 // Tests that the grid::Bar() method does Abc.
 TEST_F(PlannerTest, Start) {
   planWithSimpleSetup();
