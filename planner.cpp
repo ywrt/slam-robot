@@ -282,14 +282,14 @@ void draw(cv::Mat& mat, const vector<Vector2d>& path) {
 
     line(mat, a1, a2, cv::Scalar(255 - i, i, i), 1, 8);
   }
-
-  cv::imshow("path", mat);
-  cv::waitKey(10);
 }
 
-void planWithSimpleSetup(void) {
+static void onMouse(int event, int x, int y, int, void* ) {
+  if( event != CV_EVENT_LBUTTONDOWN )
+    return;
+
   State goal;
-  goal.pos_ << -2,5;
+  goal.pos_ << x / 1024. * 20 - 10, 10 - y / 1024. * 20;
   goal.direction_ = M_PI_2;
 
   State curr;
@@ -305,8 +305,35 @@ void planWithSimpleSetup(void) {
     draw(mat, path);
   }
 
+  cv::imshow("path", mat);
+  printf("mouse %d, %d\n", x, y);
+}
 
-  cv::waitKey(0);
+
+void planWithSimpleSetup(void) {
+  State goal;
+  goal.pos_ << -2,5;
+  goal.direction_ = M_PI_2;
+
+  State curr;
+  curr.pos_ << 0,0;
+  curr.direction_ = M_PI_2;
+  cv::Mat mat(1024, 1024, CV_8UC3);
+
+  mat = cv::Scalar(0,0,0);
+  cv::imshow("path", mat);
+
+  cv::setMouseCallback("path", onMouse, 0 );
+
+  for (int i = 0; i < 6; ++i) {
+    vector<Segment> segments = generate_path(curr, goal, i);
+    vector<Vector2d> path = interpolate_path(curr, segments, 0.1);
+    draw(mat, path);
+  }
+  cv::imshow("path", mat);
+
+  while (1)
+    cv::waitKey(0);
 
 }
 
