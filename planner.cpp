@@ -164,12 +164,25 @@ vector<Segment> generate_LRL(const State& curr,
   double t2 = goal.direction_ - angle - M_PI_2;
 
   double a1 = theta - t1;
-  double a2 = M_PI + 2 * theta;
-  double a3 = t2 - (M_PI - theta);
+  if (parity < 0) {
+    a1 = t1 - (M_PI - theta);
+  }
 
-  segments.push_back(Segment(mod2pi(a1), -1));
-  segments.push_back(Segment(mod2pi(a2), 1));
-  segments.push_back(Segment(mod2pi(a3), -1));
+  double a2 = (M_PI + 2 * theta);
+  double a3 = parity * (t2 - (M_PI - theta));
+  if (parity < 0) {
+    a3 = theta - t2;
+  }
+
+  printf("t1 %f t2 %f\n", t1 * 180 / M_PI, t2 * 180 / M_PI);
+  printf("a1 %f a2 %f a3 %f\n",
+         mod2pi(a1) * 180 / M_PI,
+         mod2pi(a2) * 180 / M_PI,
+         mod2pi(a3) * 180 / M_PI);
+
+  segments.push_back(Segment(mod2pi(a1), -1 * parity));
+  segments.push_back(Segment(mod2pi(a2), 1 * parity));
+  segments.push_back(Segment(mod2pi(a3), -1 * parity));
 
   return segments;
 }
@@ -202,6 +215,8 @@ vector<Segment> generate_path(const State& curr,
       return generate_LSR(curr, goal, -1);
     case 4:
       return generate_LRL(curr, goal, 1);
+    case 5:
+      return generate_LRL(curr, goal, -1);
   }
 }
 
@@ -269,27 +284,28 @@ void draw(cv::Mat& mat, const vector<Vector2d>& path) {
   }
 
   cv::imshow("path", mat);
- // cv::waitKey(1000);
+  cv::waitKey(10);
 }
 
 void planWithSimpleSetup(void) {
   State goal;
-  goal.pos_ << 0,-3;
-  goal.direction_ = 0;
+  goal.pos_ << -2,5;
+  goal.direction_ = M_PI_2;
 
   State curr;
   curr.pos_ << 0,0;
-  curr.direction_ = 0;
+  curr.direction_ = M_PI_2;
   cv::Mat mat(1024, 1024, CV_8UC3);
 
   mat = cv::Scalar(0,0,0);
 
-  for (double t = .5 ; t < 4.5; t += 0.1) {
-    goal.pos_(1) = -t;
-    vector<Segment> segments = generate_path(curr, goal, 4);
+  for (int i = 0; i < 6; ++i) {
+    vector<Segment> segments = generate_path(curr, goal, i);
     vector<Vector2d> path = interpolate_path(curr, segments, 0.1);
     draw(mat, path);
   }
+
+
   cv::waitKey(0);
 
 }
