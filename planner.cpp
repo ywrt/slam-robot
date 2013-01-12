@@ -22,6 +22,7 @@ using namespace std;
 using namespace Eigen;
 
 const double kTurningRadius = 2;
+const int kPathTypes = 18;
 
 struct State {
   Vector2d pos_;
@@ -39,6 +40,13 @@ struct Segment {
 double mod2pi(double a) {
   while (a < 0) a += 2 * M_PI;
   while (a > M_PI * 2) a -= 2 * M_PI;
+  return a;
+}
+
+
+double modpi(double a) {
+  while (a < -M_PI) a += 2 * M_PI;
+  while (a > M_PI) a -= 2 * M_PI;
   return a;
 }
 
@@ -61,7 +69,7 @@ vector<Segment> generate_LSL(const State& curr,
   double dist = heading.norm();
   heading.normalize();
 
-  if (dist < kTurningRadius * 2)
+  if (dist == 0)
     return segments;  // Can't compute path as circles intersect.
 
   double angle = atan2(heading(1), heading(0));
@@ -156,7 +164,7 @@ vector<Segment> generate_LRL(const State& curr,
   // Distance between first two centers is 'dist'.
   // Distance between from those to the other center is
   // 2 * kTurningRadius.
-  double theta = acos((dist/2) / (kTurningRadius*2));
+  double theta = -acos((dist/2) / (kTurningRadius*2));
 
   printf("theta %f\n", theta / M_PI * 180.);
 
@@ -174,12 +182,6 @@ vector<Segment> generate_LRL(const State& curr,
     a3 = theta - t2;
   }
 
-  printf("t1 %f t2 %f\n", t1 * 180 / M_PI, t2 * 180 / M_PI);
-  printf("a1 %f a2 %f a3 %f\n",
-         mod2pi(a1) * 180 / M_PI,
-         mod2pi(a2) * 180 / M_PI,
-         mod2pi(a3) * 180 / M_PI);
-
   segments.push_back(Segment(mod2pi(a1), -1 * parity));
   segments.push_back(Segment(mod2pi(a2), 1 * parity));
   segments.push_back(Segment(mod2pi(a3), -1 * parity));
@@ -187,18 +189,30 @@ vector<Segment> generate_LRL(const State& curr,
   return segments;
 }
 
+
 vector<Segment> reverse_path(const vector<Segment>& segments) {
   vector<Segment> out;
   for (int i = segments.size() - 1 ; i >= 0 ; --i) {
     const Segment& s = segments[i];
     if (s.type_ == 0) {
-      out.push_back(Segment(s.distance_, s.type_));
+      out.push_back(Segment(-s.distance_, s.type_));
     } else {
-      out.push_back(Segment(mod2pi(-segments[i].distance_),
-                            segments[i].type_ * -1));
+      out.push_back(Segment(-segments[i].distance_,
+                            segments[i].type_));
     }
   }
   return out;
+}
+
+double path_length(const vector<Segment>& segments) {
+  double sum = 0;
+  for (auto& s : segments) {
+    if (s.type_ == 0)
+      sum += abs(s.distance_);
+    else
+      sum += abs(modpi(s.distance_)) * kTurningRadius;
+  }
+  return sum;
 }
 
 vector<Segment> generate_path(const State& curr,
@@ -218,6 +232,53 @@ vector<Segment> generate_path(const State& curr,
     case 5:
       return generate_LRL(curr, goal, -1);
   }
+  return vector<Segment>();
+}
+
+vector<Segment> generate_mixed_path(const State& curr,
+                              const State& goal,
+                              int type) {
+  int sub_type = type % 6;
+  type /= 6;
+  switch (type) {
+    case 0:
+      return generate_path(curr, goal, sub_type);
+    case 1:
+      return reverse_path(generate_path(goal, curr, sub_type));
+    case 2:
+      State a = curr;
+      State b = goal;
+      a.direction_ = mod2pi(a.direction_ + M_PI);
+      b.direction_ = mod2pi(b.direction_ + M_PI);
+
+      vector<Segment> segments = generate_path(a, b, sub_type);
+      for (auto& s : segments) {
+        s.distance_ = -s.distance_;
+        s.type_ = -s.type_;
+        if (s.type_)
+          s.distance_ = mod2pi(s.distance_);
+      }
+      return segments;
+  }
+  return vector<Segment>();
+}
+
+vector<Segment> shortest_path(const State& curr,
+                  const State& goal) {
+  double best_len = 1e9;
+  vector<Segment> result;
+  for (int i = 0; i < kPathTypes; ++i) {
+    vector<Segment> s = generate_mixed_path(curr, goal, i);
+    if (!s.size())
+      continue;  // Failed to generate path.
+    double len = path_length(s);
+    if (len > best_len)
+      continue;
+    best_len = len;
+    result = s;
+  }
+
+  return result;
 }
 
 vector<Vector2d> interpolate_path(const State& curr,
@@ -231,20 +292,36 @@ vector<Vector2d> interpolate_path(const State& curr,
     path.push_back(c.pos_);  // Push start.
     if (s.type_ == 0) {
       // Straight line.
+
+      double dist = s.distance_;
       Vector2d heading =
           Rotation2D<double>(c.direction_) * Vector2d::UnitX();
-      for (double t = step; t < s.distance_; t += step) {
+
+      if (dist < 0) {
+        dist = -dist;
+        heading = -heading;
+      }
+
+      for (double t = step; t < dist; t += step) {
         path.push_back(t * heading + c.pos_);
       }
-      c.pos_ += s.distance_ * heading;
+      c.pos_ += dist * heading;
     } else {
       // Left or right curve.
       Vector2d center = c.pos_ + kTurningRadius
           * (Rotation2D<double>(c.direction_ - s.type_ * M_PI_2)
           * Vector2d::UnitX());
+
+      double dist = modpi(s.distance_);
+      double order = s.type_;
+      if (dist < 0) {
+        dist = -dist;
+        order = -order;
+      }
+
       double t1 = c.direction_ - s.type_ * M_PI_2 + M_PI;
-      for (double t = step ; t < s.distance_; t += step) {
-        double angle = t1 - t * s.type_;
+      for (double t = step ; t < dist; t += step) {
+        double angle = t1 - t * order;
         Vector2d p = center + kTurningRadius *
             (Rotation2D<double>(angle) * Vector2d::UnitX());
         path.push_back(p);
@@ -269,7 +346,7 @@ cv::Point rescale(const cv::Mat& mat, const Vector2d& p) {
   return cv::Point(x, y);
 }
 
-void draw(cv::Mat& mat, const vector<Vector2d>& path) {
+void draw(cv::Mat& mat, const vector<Vector2d>& path, int h) {
   printf("[%f, %f] -> [%f, %f]\n",
          path[0](0),path[0](1),
          path.back()(0), path.back()(1));
@@ -280,7 +357,10 @@ void draw(cv::Mat& mat, const vector<Vector2d>& path) {
     cv::Point a1(rescale(mat, p1));
     cv::Point a2(rescale(mat, p2));
 
-    line(mat, a1, a2, cv::Scalar(255 - i, i, i), 1, 8);
+    auto color = cv::Scalar(255 - i, i, i);
+    if (h)
+      color = cv::Scalar(i, i, 255 - i);
+    line(mat, a1, a2, color, 1, 8);
   }
 }
 
@@ -299,10 +379,17 @@ static void onMouse(int event, int x, int y, int, void* ) {
 
   mat = cv::Scalar(0,0,0);
 
-  for (int i = 0; i < 6; ++i) {
-    vector<Segment> segments = generate_path(curr, goal, i);
+  for (int i = 0; i < kPathTypes; ++i) {
+    vector<Segment> segments = generate_mixed_path(curr, goal, i);
     vector<Vector2d> path = interpolate_path(curr, segments, 0.1);
-    draw(mat, path);
+    draw(mat, path, 0);
+  }
+
+
+  if (1){
+    vector<Segment> segments = shortest_path(curr, goal);
+    vector<Vector2d> path = interpolate_path(curr, segments, 0.1);
+    draw(mat, path, 1);
   }
 
   cv::imshow("path", mat);
@@ -325,10 +412,10 @@ void planWithSimpleSetup(void) {
 
   cv::setMouseCallback("path", onMouse, 0 );
 
-  for (int i = 0; i < 6; ++i) {
+  for (int i = 4; i < 6; ++i) {
     vector<Segment> segments = generate_path(curr, goal, i);
     vector<Vector2d> path = interpolate_path(curr, segments, 0.1);
-    draw(mat, path);
+    draw(mat, path, 0);
   }
   cv::imshow("path", mat);
 
