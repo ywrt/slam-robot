@@ -21,7 +21,7 @@
 using namespace std;
 using namespace Eigen;
 
-const double kTurningRadius = 1;
+const double kTurningRadius = 2;
 
 struct State {
   Vector2d pos_;
@@ -61,6 +61,9 @@ vector<Segment> generate_LSL(const State& curr,
   double dist = heading.norm();
   heading.normalize();
 
+  if (dist < kTurningRadius * 2)
+    return segments;  // Can't compute path as circles intersect.
+
   double angle = atan2(heading(1), heading(0));
 
   // first circle angle.
@@ -89,6 +92,10 @@ vector<Segment> generate_LSR(const State& curr,
 
   Vector2d heading = cb - ca;
   double dist = heading.norm();
+
+  if (dist < kTurningRadius * 2)
+    return segments;  // Can't compute path as circles intersect.
+
   heading.normalize();
   double angle = atan2(heading(1), heading(0));
 
@@ -121,6 +128,52 @@ vector<Segment> generate_LSR(const State& curr,
   return segments;
 }
 
+
+// Two circles, possibly intersecting.
+// We trace the path along a 3rd circle that joins them.
+vector<Segment> generate_LRL(const State& curr,
+                             const State& goal,
+                             int parity) {
+  vector<Segment> segments;
+
+  Vector2d ca = curr.pos_ + kTurningRadius
+      * (Rotation2D<double>(curr.direction_ + parity * M_PI_2)
+      * Vector2d::UnitX());
+
+  Vector2d cb = goal.pos_ + kTurningRadius
+        * (Rotation2D<double>(goal.direction_ + parity * M_PI_2)
+        * Vector2d::UnitX());
+
+  Vector2d heading = cb - ca;
+  double dist = heading.norm();
+
+  if (dist > kTurningRadius * 4)
+    return segments; // Circles don't intersect.
+
+  double angle = atan2(heading(1), heading(0));
+
+  // Triangle formed by the centers of the 3 circles.
+  // Distance between first two centers is 'dist'.
+  // Distance between from those to the other center is
+  // 2 * kTurningRadius.
+  double theta = acos((dist/2) / (kTurningRadius*2));
+
+  printf("theta %f\n", theta / M_PI * 180.);
+
+  double t1 = curr.direction_ - angle - M_PI_2;
+  double t2 = goal.direction_ - angle - M_PI_2;
+
+  double a1 = theta - t1;
+  double a2 = M_PI + 2 * theta;
+  double a3 = t2 - (M_PI - theta);
+
+  segments.push_back(Segment(mod2pi(a1), -1));
+  segments.push_back(Segment(mod2pi(a2), 1));
+  segments.push_back(Segment(mod2pi(a3), -1));
+
+  return segments;
+}
+
 vector<Segment> reverse_path(const vector<Segment>& segments) {
   vector<Segment> out;
   for (int i = segments.size() - 1 ; i >= 0 ; --i) {
@@ -147,6 +200,8 @@ vector<Segment> generate_path(const State& curr,
       return generate_LSL(curr, goal, -1);
     case 3:
       return generate_LSR(curr, goal, -1);
+    case 4:
+      return generate_LRL(curr, goal, 1);
   }
 }
 
@@ -200,7 +255,6 @@ cv::Point rescale(const cv::Mat& mat, const Vector2d& p) {
 }
 
 void draw(cv::Mat& mat, const vector<Vector2d>& path) {
-
   printf("[%f, %f] -> [%f, %f]\n",
          path[0](0),path[0](1),
          path.back()(0), path.back()(1));
@@ -215,13 +269,13 @@ void draw(cv::Mat& mat, const vector<Vector2d>& path) {
   }
 
   cv::imshow("path", mat);
-  cv::waitKey(100);
+ // cv::waitKey(1000);
 }
 
 void planWithSimpleSetup(void) {
   State goal;
-  goal.pos_ << 5,5;
-  goal.direction_ = - M_PI_2 / 2;
+  goal.pos_ << 0,-3;
+  goal.direction_ = 0;
 
   State curr;
   curr.pos_ << 0,0;
@@ -230,21 +284,12 @@ void planWithSimpleSetup(void) {
 
   mat = cv::Scalar(0,0,0);
 
-  vector<Segment> segments = generate_path(curr, goal, 0);
-  vector<Vector2d> path = interpolate_path(curr, segments, 0.1);
-  draw(mat, path);
-
-  segments = generate_path(curr, goal, 1);
-  path = interpolate_path(curr, segments, 0.1);
-  draw(mat, path);
-
-  segments = generate_path(curr, goal, 2);
-  path = interpolate_path(curr, segments, 0.1);
-  draw(mat, path);
-
-  segments = generate_path(curr, goal, 3);
-  path = interpolate_path(curr, segments, 0.1);
-  draw(mat, path);
+  for (double t = .5 ; t < 4.5; t += 0.1) {
+    goal.pos_(1) = -t;
+    vector<Segment> segments = generate_path(curr, goal, 4);
+    vector<Vector2d> path = interpolate_path(curr, segments, 0.1);
+    draw(mat, path);
+  }
   cv::waitKey(0);
 
 }
