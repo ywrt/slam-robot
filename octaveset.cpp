@@ -78,7 +78,7 @@ FPos OctaveSet::UpdatePosition(const OctaveSet& pimage,
                                const FPos& pos, const FPos& ppos) const {
   uint8_t patch[64];
   FPos fp(pos);
-  if (!pimage.octave3_->contains_fpos(ppos, Octave::patch_radius)) {
+  if (!pimage.octave3_->contains(ppos, Octave::patch_radius)) {
     Pos p = octave3_->pos(ppos);
     LOG("Out of image fail %d,%d.\n", p.x, p.y);
     return FPos::invalid();
@@ -100,7 +100,7 @@ FPos OctaveSet::UpdatePosition(const OctaveSet& pimage,
 
   int sumb;
   FPos rfp(ppos);  // Reverse position.
-  if (!octave3_->contains_fpos(fp, Octave::patch_radius)) {
+  if (!octave3_->contains(fp, Octave::patch_radius)) {
     Pos p = octave3_->pos(fp);
     LOG("Out of image fail %d,%d.\n", p.x, p.y);
     return FPos::invalid();
@@ -142,8 +142,6 @@ FPos OctaveSet::UpdatePosition(const OctaveSet& pimage,
 
   return fp;
 }
-
-
 
 FPos OctaveSet::SearchBestCorner(const FRegion& freg, int min_score) const {
   Region reg(octave3_->clipped_region(freg, 3));
@@ -210,7 +208,6 @@ FPos OctaveSet::SearchBestCorner(const FRegion& freg, int min_score) const {
 }
 
 int OctaveSet::CheckCorner(const FPos& fp) {
-
   int score = octave3_->ScorePosition(fp, 5);
   score = std::min(score, octave2_->ScorePosition(fp, 5));
   score = std::min(score, octave1_->ScorePosition(fp, 5));

@@ -365,7 +365,7 @@ int main(int argc, char*argv[]) {
   cv::VideoCapture vid(argv[1]);
   cv::Mat img;
   cv::Mat t;
-  cv::Mat out;
+  cv::Mat_<cv::Vec3b> out;
   cv::Mat grey;
 
   Ptr<FeatureDetector> detector =
@@ -386,6 +386,16 @@ int main(int argc, char*argv[]) {
 
     cv::transpose(img, t);
     cv::resize(t, out, Size(t.cols / 2, t.rows / 2));
+
+    // Image norm to remove illumination
+    for (auto& p : out) {
+      int sum = p[0] + p[1] + p[2];
+      if (sum > 0) {
+        p[0] = min(255, 255 * p[0] / sum);
+        p[1] = min(255, 255 * p[1] / sum);
+        p[2] = min(255, 255 * p[2] / sum);
+      }
+    }
     cv::cvtColor(t, grey, CV_RGB2GRAY);
 
     int frame_num = tracking.ProcessFrame((uint8_t*)grey.data,
@@ -427,7 +437,7 @@ int main(int argc, char*argv[]) {
       map.Clean();
 
       //DumpMap(&map);
-      //cv::waitKey(0);
+      cv::waitKey(0);
     }
     if (frame >= 100)
       break;

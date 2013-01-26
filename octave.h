@@ -131,7 +131,7 @@ public:
   }
 
   // Does this point line inside the clip region?
-  inline bool contains_pos(const Pos& pos, int margin) const {
+  inline bool contains(const Pos& pos, int margin) const {
     Pos r = pos;
     if (r.x < margin) return false;
     if (r.y < margin) return false;
@@ -139,26 +139,8 @@ public:
     if ((height_ - r.y) <= margin) return false;
     return true;
   }
-  inline bool contains_fpos(const FPos& fpos, int margin) const {
-    return contains_pos(pos(fpos), margin);
-  }
-
-  // Compute the cross-correlation for a patch against
-  // the given (ix,iy) position in the given octave.
-  // ix, iy in pixel co-ords. Inputs assumed to be valid (i.e. not
-  // outside the patch.
-  int scorePosition(uint8_t* patch, int ix, int iy, int best) const {
-    int sum = 0;
-    for (int ry = iy - patch_radius ; ry < iy + patch_radius; ++ry) {
-      for (int rx = ix - patch_radius ; rx < ix + patch_radius ; ++rx) {
-        uint8_t a  = pixel(rx, ry);
-        uint8_t b = *patch;
-        int d = a - b;
-        sum += abs(d);
-        ++patch;
-      }
-    }
-    return sum;
+  inline bool contains(const FPos& fpos, int margin) const {
+    return contains(pos(fpos), margin);
   }
 
   // Fixed size 8x8 scoring. uses neon intrinsics for some sembalance of speed.

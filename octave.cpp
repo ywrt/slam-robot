@@ -6,6 +6,7 @@
  */
 
 #include <stdio.h>
+#include <math.h>
 #ifdef NEON
 #include <arm_neon.h>
 #endif
@@ -212,7 +213,6 @@ int Octave::Score(const uint8_t* patch, const Pos& pos) const {
    return acc;
 }
 
-
 // Search around a radius of the current position in this octave for the
 // best match for this patch.
 FPos Octave::SearchPosition(const FPos &fp,
@@ -225,7 +225,6 @@ FPos Octave::SearchPosition(const FPos &fp,
   int best = (1<<30);
   Pos best_pos(Pos::invalid());
   for (auto& point : Region(ll, ur)) {
-    //int sum = scorePosition(octave, patch, px, py, best);
     int sum = Score(patch, point);
     if (point == p)
       sum--;
@@ -294,10 +293,16 @@ int Octave::ScoreCorner(const Pos& pos) const {
     gxy += w*dxx*dyy;
   }
 
-  int64_t d = (int64_t)gxx*gyy-gxy*gxy;
-  int64_t t = (int64_t)gxx+gyy;
+  int64_t det = (int64_t)gxx*gyy-gxy*gxy;
+  int64_t trace = (int64_t)gxx+gyy;
 
-  int64_t score = d - t*t/6;
+  // Harris corner.
+  int64_t score = det - trace*trace/6;
+
+  // KLT corner
+  int64_t radical = trace*trace - 4 * det;
+  int64_t eigen2 = (trace - sqrt(radical))/2;
+  return eigen2 / 65536LL;
 
  // LOG("%d,%d,%d : %lld / %lld = %lld => %lld", gxx, gyy, gxy,
  //     d, t*t, t*t/d, score);
