@@ -14,6 +14,8 @@
 
 #include "slam.h"
 
+Slam::Slam() : iterations_(0), error_(0) {}
+Slam::~Slam() { }
 
 Vector2d fposToVector(const FPos& fp) {
   Vector2d r;

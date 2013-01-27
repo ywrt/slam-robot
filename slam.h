@@ -9,6 +9,7 @@
 #define SLAM_H_
 
 #include <memory>
+#include <set>
 
 #include "localmap.h"
 
@@ -21,7 +22,8 @@ class Problem;
 
 class Slam {
  public:
-  Slam() : iterations_(0), error_(0) {}
+  Slam();
+  virtual ~Slam();
 
   void Run(LocalMap* map,
            int min_frame_to_solve,
@@ -35,8 +37,8 @@ class Slam {
 
  private:
   unique_ptr<ceres::Problem> problem_;
-  set<Frame*> frame_set_;
-  set<TrackedPoint*> point_set_;
+  std::set<Frame*> frame_set_;
+  std::set<TrackedPoint*> point_set_;
 
   void SetupParameterization();
   void SetupConstantBlocks(const int frame,
