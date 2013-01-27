@@ -10,6 +10,7 @@
 #include <stdint.h>
 #include "imgtypes.h"
 #include "region.h"
+#include "histogram.h"
 
 class Octave;
 
@@ -45,20 +46,10 @@ class OctaveSet {
 
   int CheckCorner(const FPos& pos);
 
-  const static int kHistSize = 20;
-  mutable int fwd_hist[4][kHistSize];
-  mutable int rev_hist[4][kHistSize];
+  mutable Histogram fwd_hist[4];
+  mutable Histogram rev_hist[4];
 
  private:
-  void Clear() {
-    for (int i = 0;i < 4; ++i) {
-      for (int j = 0; j < kHistSize; ++j) {
-        fwd_hist[i][j] = 0;
-        rev_hist[i][j] = 0;
-      }
-    }
-  }
-  static const int kSectors = 14;
   Octave* octave0_;
   Octave* octave1_;
   Octave* octave2_;

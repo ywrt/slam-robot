@@ -4,8 +4,9 @@
  *  Created on: Dec 31, 2012
  *      Author: michael
  */
-
+#include <iostream>
 #include <glog/logging.h>
+#include "histogram.h"
 
 #include "localmap.h"
 
@@ -35,7 +36,7 @@ int LocalMap::AddFrame() {
  void LocalMap::Clean() {
    // SortObs sorter;
    // sort(map->obs.begin(), map->obs.end(), sorter);
-   int err_hist[20] = {0,0,0,0,0,0,0,0,0,0};
+   Histogram err_hist(20);
 
    int curr_frame = frames.size() - 1;
    for (auto& point : points) {
@@ -45,9 +46,7 @@ int LocalMap::AddFrame() {
      int poor_matches = 0;
      for (auto& o : point.observations_) {
        double err = o.error.norm() * 1000;
-       if (err < sizeof(err_hist) / sizeof(err_hist[0])) {
-         ++err_hist[(int)err];
-       }
+       err_hist.add(err);
 
        if (err < 5)
          continue;
@@ -64,7 +63,5 @@ int LocalMap::AddFrame() {
        point.observations_.pop_back();
      }
    }
-   for (size_t i = 0; i < sizeof(err_hist) / sizeof(err_hist[0]); ++i) {
-     printf("err_hist: %2ld : %5d\n", i, err_hist[i]);
-   }
+   cout << "LocalMap Error histogram\n" << err_hist.str();
  }

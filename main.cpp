@@ -146,6 +146,10 @@ int main(int argc, char*argv[]) {
     //UpdateMap(&map, frame, normed_points, descriptors);
 
     for (const auto& point : map.points) {
+      if (point.last_frame() == frame - 1) {
+        DrawCross(&out, point.last_point(), 2, Scalar(255,0,0));
+        continue;
+      }
       if (point.last_frame() != frame)
         continue;
       if (point.num_observations() == 1) {
@@ -162,7 +166,7 @@ int main(int argc, char*argv[]) {
 
     cv::imshow("Display window", out);
 
-    int mod = 5;
+    int mod = 1;
 
     slam.Run(&map, frame - 2, false);
     slam.ReprojectMap(&map);

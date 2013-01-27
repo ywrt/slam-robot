@@ -14,6 +14,7 @@
 #include "octaveset.h"
 #include "slam.h"
 #include "grid.h"
+#include "histogram.h"
 
 #include "tracking.h"
 
@@ -110,10 +111,8 @@ int Tracking::UpdateCorners(LocalMap* map, int frame_num) {
 #if 0
 for (int i = 0; i < 4; ++i) {
   printf("Octave %d\n", i);
-  for (int j = 0; j < OctaveSet::kHistSize; ++j) {
-    printf("%2d: %5d %5d\n",
-           j, curr->fwd_hist[i][j], curr->rev_hist[i][j]);
-  }
+  cout << "fwd\n" << curr->fwd_hist[i].str();
+  cout << "rev\n" << curr->rev_hist[i].str();
 }
 #endif
 
@@ -146,6 +145,8 @@ void Tracking::FindNewCorners(LocalMap* map, int frame_num) {
   int found = 0;
   FPos fgrid_size(1. / grid_size, 1. / grid_size);
 
+  static Histogram score_hist(20, 1000);
+
   for (auto& p : grid) {
     FPos corner((float)p.x / grid_size, (float) p.y / grid_size);
     FRegion fregion(corner, corner + fgrid_size);
@@ -155,9 +156,10 @@ void Tracking::FindNewCorners(LocalMap* map, int frame_num) {
       continue;
 
     int score = curr->CheckCorner(fp);
-    // printf("score: %d\n", score);
+    score_hist.add(score);
+
     // TODO: Extract magic.
-    if (score < 2000)
+    if (score < 5000)
       continue;
 
     map->points.push_back(TrackedPoint());
@@ -172,6 +174,7 @@ void Tracking::FindNewCorners(LocalMap* map, int frame_num) {
   }
   printf("Search found %d\n", found);
 
+  cout << score_hist.str() << "\n";
   // LOG("Now tracking %d corners\n", cset.access().num_valid());
 }
 

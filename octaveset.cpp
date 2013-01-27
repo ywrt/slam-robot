@@ -15,11 +15,20 @@
 
 
 OctaveSet::OctaveSet() :
+fwd_hist { Histogram(20, 1000),
+  Histogram(20, 1000),
+  Histogram(20, 1000),
+  Histogram(20, 1000),
+},
+rev_hist { Histogram(20, 1000),
+  Histogram(20, 1000),
+  Histogram(20, 1000),
+  Histogram(20, 1000),
+},
 octave0_(new Octave()),
 octave1_(new Octave()),
 octave2_(new Octave()),
 octave3_(new Octave()) {
-  Clear();
 }
 
 OctaveSet::~OctaveSet() {
@@ -64,13 +73,6 @@ FPos OctaveSet::UpdatePosition(const PatchSet& ps,
   return fp;
 }
 
-int clamp(int val) {
-  val /= 1000;
-  if (val >= OctaveSet::kHistSize)
-    return OctaveSet::kHistSize - 1;
-  return val;
-}
-
 // 'pos' is the estimated position in the current octaveset needing
 // refinement.
 // 'ppos' is the known position in the previous 'pimage' octaveset
@@ -86,16 +88,16 @@ FPos OctaveSet::UpdatePosition(const OctaveSet& pimage,
   int suma;
   pimage.octave3_->FillPatch(patch, ppos);
   fp = octave3_->SearchPosition(fp, patch, 2, &suma);
-  fwd_hist[3][clamp(suma)]++;
+  fwd_hist[3].add(suma);
   pimage.octave2_->FillPatch(patch, ppos);
   fp = octave2_->SearchPosition(fp, patch, 2, &suma);
-  fwd_hist[2][clamp(suma)]++;
+  fwd_hist[2].add(suma);
   pimage.octave1_->FillPatch(patch, ppos);
   fp = octave1_->SearchPosition(fp, patch, 2, &suma);
-  fwd_hist[1][clamp(suma)]++;
+  fwd_hist[1].add(suma);
   pimage.octave0_->FillPatch(patch, ppos);
   fp = octave0_->SearchPosition(fp, patch, 2, &suma);
-  fwd_hist[0][clamp(suma)]++;
+  fwd_hist[0].add(suma);
   // Now search in the previous image.
 
   int sumb;
@@ -107,23 +109,23 @@ FPos OctaveSet::UpdatePosition(const OctaveSet& pimage,
   }
   octave3_->FillPatch(patch, fp);
   rfp = pimage.octave3_->SearchPosition(rfp, patch, 2, &sumb);
-  rev_hist[3][clamp(suma)]++;
+  rev_hist[3].add(sumb);
   octave2_->FillPatch(patch, fp);
   rfp = pimage.octave2_->SearchPosition(rfp, patch, 2, &sumb);
-  rev_hist[2][clamp(suma)]++;
+  rev_hist[2].add(sumb);
   octave1_->FillPatch(patch, fp);
   rfp = pimage.octave1_->SearchPosition(rfp, patch, 2, &sumb);
-  rev_hist[1][clamp(suma)]++;
+  rev_hist[1].add(sumb);
   octave0_->FillPatch(patch, fp);
   rfp = pimage.octave0_->SearchPosition(rfp, patch, 2, &sumb);
-  rev_hist[0][clamp(suma)]++;
+  rev_hist[0].add(sumb);
 
   Pos fwd = pimage.octave0_->pos(ppos);
   Pos rev = pimage.octave0_->pos(rfp);
   Pos delta(abs(fwd.x - rev.x), abs(fwd.y - rev.y));
 
   // TODO: Extract magic number.
-  if ((delta.x + delta.y) > 0) {
+  if ((delta.x + delta.y) > 1) {
     // Update failed.
     LOG("UpdatePos failed: (%3d,%3d) -> (%3d,%3d) : (%-3d,%-3d) [%f,%f]\n",
         fwd.x, fwd.y, rev.x, rev.y,
