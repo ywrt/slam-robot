@@ -28,7 +28,7 @@ prev {NULL, } {
   }
 }
 
-void Tracking::ComputeHomography(const Frame& f1, const Frame& f2, Matrix3d* homog) {
+void Tracking::ComputeHomography(const Pose& f1, const Pose& f2, Matrix3d* homog) {
   Matrix3d rotate;
   rotate = f2.rotation_ * f1.rotation_.inverse();
 
@@ -67,8 +67,8 @@ int Tracking::UpdateCorners(LocalMap* map, int frame_num) {
   for (int i = 0; i < kSearchFrames; ++i) {
     if (i >= frame_num)
       continue;
-    const Frame& f2 = map->frames[frame_num];
-    const Frame& f1 = map->frames[frame_num - i - 1];
+    const Pose& f2 = map->frames[frame_num];
+    const Pose& f1 = map->frames[frame_num - i - 1];
     ComputeHomography(f1, f2, &homography[i]);
 
     cout << homography[i] << endl;

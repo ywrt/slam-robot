@@ -12,14 +12,12 @@
 
 #include <eigen3/Eigen/Eigen>
 
-#include "octaveset.h"
-
 using namespace Eigen;
 using namespace std;
 
 // Position and orientation of a frame camera.
-struct Frame {
-  Frame() :
+struct Pose {
+  Pose() :
     rotation_ {1,0,0,0},
     translation_ {0,0,10} {}
 
@@ -121,7 +119,6 @@ struct TrackedPoint {
     Vector4d location_;  // Homogeneous location in world.
     vector<Observation> observations_;
     vector<Descriptor> descriptors_;
-    vector<Patch> patches_;
     bool bad_;
 };
 
@@ -137,7 +134,7 @@ struct LocalMap {
   void Clean();
 
   Camera camera;
-  vector<Frame> frames;
+  vector<Pose> frames;
   vector<int> keyframes;
   vector<TrackedPoint> points;
   vector<Observation> obs;

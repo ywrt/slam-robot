@@ -105,13 +105,6 @@ int main(int argc, char*argv[]) {
   cv::Mat_<cv::Vec3b> out;
   cv::Mat grey;
 
-  Ptr<FeatureDetector> detector =
-      new GridAdaptedFeatureDetector(
-          new PyramidAdaptedFeatureDetector(
-              FeatureDetector::create("FAST")),
-              150);
-  ORB extractor(150, 1.3, 3);
-
   int frame = -1;
 
   LocalMap map;

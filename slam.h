@@ -37,7 +37,7 @@ class Slam {
 
  private:
   unique_ptr<ceres::Problem> problem_;
-  std::set<Frame*> frame_set_;
+  std::set<Pose*> frame_set_;
   std::set<TrackedPoint*> point_set_;
 
   void SetupParameterization();

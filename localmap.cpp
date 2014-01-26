@@ -20,14 +20,14 @@ int LocalMap::AddFrame() {
     Vector3d motion = f1.translation_ - f2.translation_;
     if (motion.norm() > 1)
       motion /= motion.norm();
-    Frame f = f1;
+    Pose f = f1;
     f.translation_ += motion;
     frames.push_back(f);
   } else if (frames.size() > 0) {
     frames.push_back(frames.back());
     frames.back().translation()[0] += 0.01;
   } else {
-    frames.push_back(Frame());
+    frames.push_back(Pose());
   }
 
   return frame_num;

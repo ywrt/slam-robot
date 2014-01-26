@@ -243,7 +243,7 @@ bool Slam::SetupProblem(int min_frame_to_solve,
                                 map->frames[o.frame_ref].rotation(),
                                 map->frames[o.frame_ref].translation(),
                                 point.location());
-      Frame* f = &(map->frames[o.frame_ref]);
+      Pose* f = &(map->frames[o.frame_ref]);
       frame_set_.insert(f);
     }
     point_set_.insert(&point);
@@ -318,7 +318,7 @@ void Slam::ReprojectMap(LocalMap* map) {
     point.location_.normalize();
     for (auto& o : point.observations_) {
       o.error = o.pt;
-      const Frame& frame = map->frames[o.frame_ref];
+      const Pose& frame = map->frames[o.frame_ref];
 
       ReprojectionError project(o.pt(0), o.pt(1));
 
