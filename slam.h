@@ -12,6 +12,7 @@
 #include <set>
 
 #include "localmap.h"
+#include "imgtypes.h"
 
 Vector2d fposToVector(const FPos& fp);
 FPos vectorToFPos(const Vector2d& v);

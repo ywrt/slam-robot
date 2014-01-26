@@ -172,6 +172,9 @@ public:
 
   // Compute the harris score for the image at this position.
   int ScoreCorner(const Pos& pos) const;
+
+  // smooth in-place with a 3x3 box filter, repeated 3 times.
+  void Smooth();
 };
 
 

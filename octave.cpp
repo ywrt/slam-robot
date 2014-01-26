@@ -313,5 +313,18 @@ int Octave::ScoreCorner(const Pos& pos) const {
   return score;
 }
 
+void Octave::Smooth() {
+  Octave orig;
+  for (int loop = 0; loop < 3; ++loop) {
+    orig.copy(image_, width_, height_);
 
-
+    for (int y = 1; y < height_ - 1; ++y) {
+      for (int x = 1; x < width_ - 1; ++x) {
+        image_[y * width_ + x] = (int)
+          ((int)orig.pixel(x-1,y-1)+orig.pixel(x,y-1)+orig.pixel(x+1,y-1)+
+          orig.pixel(x-1,y+0)+orig.pixel(x,y+0)+orig.pixel(x+1,y+0)+
+          orig.pixel(x-1,y+1)+orig.pixel(x,y+1)+orig.pixel(x+1,y+1)) / 9;
+      }
+    }
+  }
+}

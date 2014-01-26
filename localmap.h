@@ -12,6 +12,8 @@
 
 #include <eigen3/Eigen/Eigen>
 
+#include "descriptor.h"
+
 using namespace Eigen;
 using namespace std;
 
@@ -51,31 +53,6 @@ struct Observation {
   Vector2d error;
   int frame_ref;
 };
-
-struct Descriptor {
-  Descriptor(const uint8_t* v) {
-    uint32_t* vv = (uint32_t*) v;
-    for (int i = 0; i < 16; ++i) {
-      data[i] = vv[i];
-    }
-  }
-  int distance(const uint8_t* v) const {
-    uint32_t* vv = (uint32_t*) v;
-    int bits = 0;
-    for (int i = 0; i < 16; ++i) {
-      uint32_t d = data[i] ^ vv[i];
-      int count = __builtin_popcount(d);
-      bits += count;
-    }
-    return bits;
-  }
-  int distance(const Descriptor& desc) const {
-    return distance((uint8_t*)desc.data);
-  }
-
-  uint32_t data[16];
-};
-
 
 // A fully tracked point.
 // Has the location in world-space, the descriptors, and any

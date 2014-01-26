@@ -11,14 +11,14 @@
 #include <stdint.h>
 #include <eigen3/Eigen/Eigen>
 
-class Frame;
+class Pose;
 class LocalMap;
 class OctaveSet;
 
 struct  Tracking {
   Tracking();
-  void ComputeHomography(const Frame& f1,
-                         const Frame& f2,
+  void ComputeHomography(const Pose& f1,
+                         const Pose& f2,
                          Eigen::Matrix3d* homog);
   Vector2d ComputePoint(
       const Eigen::Vector2d& point,

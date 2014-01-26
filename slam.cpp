@@ -299,7 +299,7 @@ void Slam::Run(LocalMap* map,
   //  if (frames > 15) {
   //  options.use_nonmonotonic_steps = true;
   //  }
-  options.use_block_amd = true;
+  //options.use_block_amd = true;
   options.num_threads = 3;
   //options.parameter_tolerance = 1e-9;
 
