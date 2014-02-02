@@ -1,5 +1,5 @@
-#ifndef REGION_H
-#define REGION_H
+#ifndef REGION_H_
+#define REGION_H_
 
 #include <stddef.h>
 
@@ -71,12 +71,22 @@ public:
     const Region* region_;
     Pos pos_;
   };
+
   iterator begin() const {
     if (ll.x > ur.x || ll.y > ur.y)
       return iterator();
     return iterator(this);
   }
   iterator end() const {
+    return iterator();
+  }
+
+  iterator begin() {
+    if (ll.x > ur.x || ll.y > ur.y)
+      return iterator();
+    return iterator(this);
+  }
+  iterator end() {
     return iterator();
   }
 

@@ -20,11 +20,18 @@ class Octave {
 public:
   static const int patch_radius = 4;
   static const int patch_size = (patch_radius*2) * (patch_radius*2);
+
   __restrict uint8_t* image_;
   int width_;
   int height_;
 
   Octave() : image_(NULL), width_(0), height_(0) {}
+  Octave(const Octave& src) :
+      image_((uint8_t*)malloc(src.width_ * src.height_)),
+      width_(src.width_),
+      height_(src.height_) {
+    memcpy(image_, src.image_, width_ * height_);
+  }
 
   // Fill in this octave from the previous one.
   // aka: Shrink the image from the previous octave to be half the width

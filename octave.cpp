@@ -13,6 +13,7 @@
 
 #include "util.h"
 #include "octave.h"
+#include "region.h"
 
 const uint8_t guass_weights[] = {
     4,   6,   9,  11,  11,   9,   6,   4,
@@ -302,7 +303,7 @@ int Octave::ScoreCorner(const Pos& pos) const {
   // KLT corner
   int64_t radical = trace*trace - 4 * det;
   int64_t eigen2 = (trace - sqrt(radical))/2;
-  return eigen2 / 65536LL;
+  return eigen2;// / 65536LL;
 
  // LOG("%d,%d,%d : %lld / %lld = %lld => %lld", gxx, gyy, gxy,
  //     d, t*t, t*t/d, score);

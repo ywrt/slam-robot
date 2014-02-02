@@ -12,13 +12,14 @@ class Pos;
 // descriptor are 256 bits long (128 measurements).
 struct Descriptor {
   Descriptor(const Octave& octave, const Pos& pos);
+  Descriptor() : data{0,0,0,0, 0,0,0,0} {}
 
-  int distance(const uint32_t* vv) const {
+  int distance(const uint32_t* vv) const;
+
+  int score() const {
     int bits = 0;
-    for (int i = 0; i < 8; ++i) {
-      uint32_t d = data[i] ^ vv[i];
-      int count = __builtin_popcount(d);
-      bits += count;
+    for (const auto& v : data) {
+      bits += __builtin_popcount(v);
     }
     return bits;
   }

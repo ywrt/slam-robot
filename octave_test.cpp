@@ -92,7 +92,7 @@ TEST_F(OctaveTest, Copy) {
   for (int row = 0; row < 8; ++row) {
     for (int col = 0; col < 8; ++col) {
       int offset = col + row * cols;
-      int index = col + row * 8;
+      //int index = col + row * 8;
       EXPECT_EQ(offset, o_.pixel(col, row));
     }
   }
@@ -153,10 +153,10 @@ TEST_F(OctaveTest, ScoreCorner) {
   for (auto& p : Region(Pos(3,3), Pos(width_ - 4, height_ - 4))) {
     int score = o_.ScoreCorner(p);
     if (score == 0) {
-      EXPECT_TRUE(p.x < 5 ||
-                  p.x > 9 ||
-                  p.y < 7 ||
-                  p.y > 11) << p.x << ", " << p.y << "\n";
+      EXPECT_TRUE(p.x <= 5 ||
+                  p.x >= 9 ||
+                  p.y <= 7 ||
+                  p.y >= 11) << p.x << ", " << p.y << "\n";
     } else {
       EXPECT_FALSE(p.x < 5 || p.x > 9) << p.x;
       EXPECT_FALSE(p.y < 7 || p.y > 11) << p.y;
@@ -166,7 +166,7 @@ TEST_F(OctaveTest, ScoreCorner) {
       best_point = p;
     }
   }
-  EXPECT_LE(10000, best_score);
+  EXPECT_LE(1, best_score);
   EXPECT_EQ(7, best_point.x);
   EXPECT_EQ(9, best_point.y);
 }

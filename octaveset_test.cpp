@@ -60,6 +60,8 @@ TEST_F(OctaveSetTest, SearchBestCorner) {
   data[offset] = 250;
   data[offset - 1] = 250;
   data[offset + 1] = 250;
+  data[offset - 2] = 250;
+  data[offset + 2] = 250;
   data[offset - width_] = 250;
   data[offset + width_] = 250;
 
