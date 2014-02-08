@@ -44,7 +44,8 @@ class OctaveTest : public ::testing::Test {
 };
 
 TEST_F(OctaveTest, Region) {
-  Region r = o_.sub_region(FRegion(FPos(0,0), FPos(1,1)));
+  FRegion fr = FRegion(FPos(0,0), FPos(1,1));
+  Region r(o_.space().convert(fr.ll), o_.space().convert(fr.ur));
   EXPECT_EQ(0, r.ll.x);
   EXPECT_EQ(0, r.ll.y);
   EXPECT_EQ(o_.width(), r.ur.x);
@@ -52,7 +53,8 @@ TEST_F(OctaveTest, Region) {
 }
 
 TEST_F(OctaveTest, Region1) {
-  Region r = o_.sub_region(FRegion(FPos(0.2, 0.4), FPos(0.6, 0.8)));
+  FRegion fr = FRegion(FPos(0.2,0.4), FPos(0.6,0.8));
+  Region r(o_.space().convert(fr.ll), o_.space().convert(fr.ur));
   EXPECT_EQ(3, r.ll.x);
   EXPECT_EQ(13, r.ll.y);
   EXPECT_EQ(10, r.ur.x);
@@ -109,9 +111,9 @@ TEST_F(OctaveTest, Fill) {
 }
 
 TEST_F(OctaveTest, Score) {
-  uint8_t patch[64];
+  Patch patch;
   for (auto& p : Region(8,8)) {
-    patch[p.x + p.y * 8] = o_.pixel(p);
+    patch.data[p.x + p.y * 8] = o_.pixel(p);
   }
 
   int score = o_.Score(patch, Pos(4,4));
@@ -119,9 +121,9 @@ TEST_F(OctaveTest, Score) {
 }
 
 TEST_F(OctaveTest, Search) {
-  uint8_t patch[64];
+  Patch patch;
   for (auto& p : Region(8,8)) {
-    patch[p.x + p.y * 8] = o_.pixel(p + Pos(2,4));
+    patch.data[p.x + p.y * 8] = o_.pixel(p + Pos(2,4));
   }
 
   // Fail to search in the region with an exact match.

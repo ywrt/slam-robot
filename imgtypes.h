@@ -86,15 +86,25 @@ struct Space {
 
   inline int size() const { return stride * height; }
 
-  inline Pos toPos(const FPos& fpos) const {
+  inline Pos convert(const FPos& fpos) const {
     return Pos(fpos.x * width, fpos.y * height);
   }
 
-  inline FPos toFPos(const Pos& p) const {
+  inline FPos convert(const Pos& p) const {
     float x = (float(p.x)+0.01f) / width;
     float y = (float(p.y)+0.01f) / height;
     return FPos(x, y);
   }
+#if 0
+  inline Region convert(const FRegion& fp) const {
+    return Region(convert(fp.ll), convert(fp.ur));
+  }
+  // Convert pixel position to floating-point
+  // position in [0,1]x[0,1]
+  inline FRegion convert(const Region& fp) const {
+    return FRegion(convert(fp.ll), convert(fp.ur));
+  }
+#endif
 
   inline int index(const Pos& p) const {
     return p.x + p.y * stride;

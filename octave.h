@@ -41,6 +41,7 @@ public:
 
   int width() const { return space_.width; }
   int height() const { return space_.height; }
+  const Space& space() const { return space_; }
 
   // Fill in this octave from the previous one.
   // aka: Shrink the image from the previous octave to be half the width
@@ -63,21 +64,10 @@ public:
 
   // Convert floating-point position to
   // pixel position.
-  inline Pos pos(const FPos& fp) const { return space_.toPos(fp); }
+  inline Pos pos(const FPos& fp) const { return space_.convert(fp); }
   // Convert pixel position to floating-point
   // position in [0,1]x[0,1]
-  inline FPos fpos(const Pos& p) const { return space_.toFPos(p); }
-
-  // Convert floating-point region to
-  // pixel position.
-  inline Region sub_region(const FRegion& fp) const {
-    return Region(pos(fp.ll), pos(fp.ur));
-  }
-  // Convert pixel position to floating-point
-  // position in [0,1]x[0,1]
-  inline FRegion sub_fregion(const Region& fp) const {
-    return FRegion(fpos(fp.ll), fpos(fp.ur));
-  }
+  inline FPos fpos(const Pos& p) const { return space_.convert(p); }
 
   // Clip a pixel position into the octave bounds.
   Pos clip_pos(const Pos& pos) const { return space_.clip(pos); }
@@ -95,7 +85,11 @@ public:
   inline Region clipped_region(
       const FRegion& freg,
       int margin) const {
-    return clipped_region(sub_region(freg), margin);
+    return clipped_region(
+        Region(
+            space_.convert(freg.ll),
+            space_.convert(freg.ur)),
+            margin);
   }
 
   // Does this point line inside the clip region?
