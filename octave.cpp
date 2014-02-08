@@ -32,7 +32,7 @@ inline int Octave::Score_neon(uint8_t* patch, Pos pos) const {
   uint8_t* ptr = pixel_ptr(pos - int(patch_radius));
 
   const uint8_t* guass_ptr = guass_weights;
-  int step = width_;
+  int step = space_.stride;
   uint16x8_t acc = vdupq_n_u16(0);
 
   for (int r = 8; r > 0 ; --r) {
@@ -86,7 +86,7 @@ FPos Octave::searchPosition_neon(const FPos &fp,
   uint8x8_t patch_row6 = vld1_u8(patch+6*8);
   uint8x8_t patch_row7 = vld1_u8(patch+7*8);
 
-  int step = width_;
+  int step = space_.stride;
   for (int py = ll.y ; py <= ur.y; ++py) {
 
     for (int px = ll.x ; px <= ur.x; ++px) {
@@ -166,7 +166,7 @@ void Octave::fillScale_neon(uint8_t *patch, const FPos& fpos) const {
   uint8_t* ptr = pixel_ptr(p - patch_radius);
   for (int ry = 0; ry < patch_radius*2; ++ry) {
     vst1_u8 (patch, vld1_u8(ptr));
-    ptr += width_;
+    ptr += space_.stride;
     patch += 8;
   }
 }
@@ -184,7 +184,7 @@ void Octave::FillPatch(uint8_t *patch, const FPos& fpos) const {
     for (int rx = 0 ; rx < patch_radius*2 ; ++rx) {
       *patch++ = ptr[rx];
     }
-    ptr += width_;
+    ptr += space_.stride;
   }
 }
 
@@ -192,7 +192,7 @@ int Octave::Score(const uint8_t* patch, const Pos& pos) const {
   uint8_t* ptr = pixel_ptr(pos - patch_radius);
 
    const uint8_t* guass_ptr = guass_weights;
-   int step = width_;
+   int step = space_.stride;
    int acc = 0;
 
    for (int r = 8; r > 0 ; --r) {
@@ -270,7 +270,7 @@ int Octave::ScorePosition(const FPos &fp,
 // Measures a 7 x 7 patch.
 int Octave::ScoreCorner(const Pos& pos) const {
   const uint8_t* ptr = pixel_ptr(pos - 2);
-  int width = width_;
+  int width = space_.stride;
 
   static const int weights[] = {
       1,2,4, 2,1,
@@ -317,11 +317,11 @@ int Octave::ScoreCorner(const Pos& pos) const {
 void Octave::Smooth() {
   Octave orig;
   for (int loop = 0; loop < 3; ++loop) {
-    orig.copy(image_, width_, height_);
+    orig.copy(image_, space_.width, space_.height);
 
-    for (int y = 1; y < height_ - 1; ++y) {
-      for (int x = 1; x < width_ - 1; ++x) {
-        image_[y * width_ + x] = (int)
+    for (int y = 1; y < space_.height - 1; ++y) {
+      for (int x = 1; x < space_.width - 1; ++x) {
+        image_[space_.index(x, y)] = (int)
           ((int)orig.pixel(x-1,y-1)+orig.pixel(x,y-1)+orig.pixel(x+1,y-1)+
           orig.pixel(x-1,y+0)+orig.pixel(x,y+0)+orig.pixel(x+1,y+0)+
           orig.pixel(x-1,y+1)+orig.pixel(x,y+1)+orig.pixel(x+1,y+1)) / 9;

@@ -8,11 +8,9 @@ using namespace std;
 
 // Return scored corners. Corners are sorted by Y.
 vector<faster::Corner> FindFasterCorners(const Octave& img, int k) {
-  int width = img.width_;
-  int height = img.height_;
   // Find corners, in order.
-  vector<faster::Corner> corners = faster::faster_detect(img.image_, width, height, width, k);
-  faster::faster_score(img.image_, width, height, width, k, &corners);
+  vector<faster::Corner> corners = faster::faster_detect(img.image_, img.space_.width, img.space_.height, img.space_.stride, k);
+  faster::faster_score(img.image_, img.space_.width, img.space_.height, img.space_.stride, k, &corners);
 
   return corners;
 }
@@ -79,7 +77,7 @@ void SupressNonMax(int k, vector<faster::Corner>* cptr) {
 }
 
 vector<Pos> FindCorners(const Octave& img) {
-  auto corners = FindFasterCorners(img, 1);
+  auto corners = FindFasterCorners(img, 5);
   for (const auto& c : corners) {
     if (c.score < 0)
       continue;

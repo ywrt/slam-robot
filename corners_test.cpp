@@ -133,8 +133,8 @@ TEST_F(CornersTest, NonMax_DenseSupression) {
     result.push_back(c);
   }
 
-  for (int i = 0; i < result.size(); ++i) {
-    for (int j = i + 1; j < result.size(); ++j) {
+  for (size_t i = 0; i < result.size(); ++i) {
+    for (size_t j = i + 1; j < result.size(); ++j) {
       int dx = abs(result[i].x - result[j].x);
       int dy = abs(result[i].y - result[j].y);
       EXPECT_TRUE(dx > 5 || dy > 5) << "i:" << i << " j:" << j << " i.x:" << result[i].x << " j.x:" << result[j].x;
@@ -145,8 +145,8 @@ TEST_F(CornersTest, NonMax_DenseSupression) {
 TEST_F(CornersTest, NonMax_AscendingDenseSupression) {
   vector<faster::Corner> corners(2);
 
-  for (int i = 0 ; i <= 20; ++i) {
-    for (int j = 0 ; j <= 20; ++j) {
+  for (size_t i = 0 ; i <= 20; ++i) {
+    for (size_t j = 0 ; j <= 20; ++j) {
       corners.push_back({i, j, i + j});
     }
   }
@@ -196,7 +196,7 @@ TEST_F(CornersTest, Image) {
 
   namedWindow( "Display window", WINDOW_AUTOSIZE );// Create a window for display.
   imshow( "Display window", mat);                   // Show our image inside it.
-  //waitKey(0);
+  waitKey(0);
 #endif
   return;
 
