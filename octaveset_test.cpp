@@ -70,7 +70,7 @@ TEST_F(OctaveSetTest, SearchBestCorner) {
   FPos fp = o_.SearchBestCorner(FRegion(FPos(0,0), FPos(1,1)), 0);
   EXPECT_FALSE(fp.isInvalid());
 
-  EXPECT_NEAR(width_ / 2, fp.x * width_, 0.02);
+  EXPECT_NEAR(width_ / 2, fp.x * width_ - 1, 0.02);
   EXPECT_NEAR(height_ / 2, fp.y * height_, 0.02);
 }
 

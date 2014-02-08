@@ -30,39 +30,21 @@ public:
       space_(src.space_) {
     memcpy(image_, src.image_, space_.size());
   }
+  ~Octave() {
+    free(image_);
+    image_ = NULL;
+  }
+
+  int width() const { return space_.width; }
+  int height() const { return space_.height; }
 
   // Fill in this octave from the previous one.
   // aka: Shrink the image from the previous octave to be half the width
   // and half the height, and save the result into this octave.
-  void fill(const Octave& prev) {
-    if (image_ == NULL || space_.width != prev.space_.width / 2 || space_.height != prev.space_.height/2) {
-      if (image_)
-        free(image_);
-      image_ = NULL;
-      space_ = Space(prev.space_.width / 2, prev.space_.height / 2);
-      image_ = (uint8_t*) malloc(space_.size());
-    }
+  void fill(const Octave& prev);
 
-    for (int y = 0; y < space_.height;++y) {
-      uint8_t* src = prev.image_ + y*2*prev.space_.stride;
-      uint8_t* dst = image_ + y*space_.stride;
-      for (int x = 0; x < space_.stride; ++x) {
-        dst[x] = ((int)src[x*2]+src[x*2+1]+
-            src[x*2+prev.space_.stride]+src[x*2+prev.space_.stride+1])/4;
-      }
-    }
-  }
+  void copy(uint8_t* image, int width, int height);
 
-  void copy(uint8_t* image, int width, int height) {
-    if (image_ == NULL || space_ != Space(width, height)) {
-      if (image_)
-        free(image_);
-      image_ = NULL;
-      space_ = Space(width, height);
-      image_ = (uint8_t*) malloc(space_.size());
-    }
-    memcpy(image_, image, space_.size());
-  }
   // Return the pixel at (x,y) from the image in this octave.
   // x,y in pixel co-ordinates.
   inline uint8_t pixel(int x, int y) const {

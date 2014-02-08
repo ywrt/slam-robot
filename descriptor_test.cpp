@@ -95,7 +95,7 @@ TEST_F(DescriptorTest, Range) {
      //   std::cout << s << "\n";
     }
   }
-  std::cout << count << " count\n";
+  //std::cout << count << " count\n";
   
   int dist[300]={0,};
   for (int i = 0; i < count; ++i) {
@@ -110,10 +110,10 @@ TEST_F(DescriptorTest, Range) {
     //std::cout << min << "\n";
     dist[min]++;
   }
-  std::cout << "\n";
+  //std::cout << "\n";
   for (int i = 0; i < 300; ++i) {
     if (!dist[i]) continue;
-    std::cout << i << " " << dist[i] << "\n";
+    //std::cout << i << " " << dist[i] << "\n";
   }
   delete[] l;
 }
@@ -152,7 +152,7 @@ TEST_F(DescriptorTest, Compare) {
         int dist = l[i].distance(d);
         if (dist < min) { index = i; min = dist; }
       }
-      printf("(%3d,%3d) => (%3d, %3d) gave [%-3d, %-3d] @ %d\n", x, y, p[index].x, p[index].y, x-p[index].x, y-p[index].y, min);
+      //printf("(%3d,%3d) => (%3d, %3d) gave [%-3d, %-3d] @ %d\n", x, y, p[index].x, p[index].y, x-p[index].x, y-p[index].y, min);
       if ((y-p[index].y) > 3 || (p[index].y - y) > 3)
         bad[min]++;
       else
@@ -162,7 +162,7 @@ TEST_F(DescriptorTest, Compare) {
 
   for (int i = 0; i < 300; ++i) {
     if (!good[i] && !bad[i]) continue;
-    printf("%3d: %4d good %4d bad\n", i, good[i], bad[i]);
+    //printf("%3d: %4d good %4d bad\n", i, good[i], bad[i]);
   }
 
   delete[] l;

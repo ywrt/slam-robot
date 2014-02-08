@@ -26,6 +26,40 @@ const uint8_t guass_weights[] = {
     4,   6,   9,  11,  11,   9,   6,   4,
 };
 
+// Fill in this octave from the previous one.
+// aka: Shrink the image from the previous octave to be half the width
+// and half the height, and save the result into this octave.
+void Octave::fill(const Octave& prev) {
+  if (image_ == NULL || space_.width != prev.space_.width / 2 || space_.height != prev.space_.height/2) {
+    if (image_)
+      free(image_);
+    image_ = NULL;
+    space_ = Space(prev.space_.width / 2, prev.space_.height / 2);
+    image_ = (uint8_t*) malloc(space_.size());
+  }
+
+  for (int y = 0; y < space_.height;++y) {
+    uint8_t* src1 = prev.pixel_ptr(Pos(0, 2 * y));
+    uint8_t* src2 = prev.pixel_ptr(Pos(0, 2 * y + 1));
+    uint8_t* dst = pixel_ptr(Pos(0, y));
+    for (int x = 0; x < space_.width; ++x) {
+      dst[x] = ((int)src1[x*2] + src1[x*2 + 1]+
+          src2[x*2] + src2[x*2 + 1])/4;
+    }
+  }
+}
+
+void Octave::copy(uint8_t* image, int width, int height) {
+  if (image_ == NULL || space_ != Space(width, height)) {
+    if (image_)
+      free(image_);
+    image_ = NULL;
+    space_ = Space(width, height);
+    image_ = (uint8_t*) malloc(space_.size());
+  }
+  memcpy(image_, image, space_.size());
+}
+
 #ifdef NEON
 // Fixed size 8x8 scoring. uses neon intrinsics for some sembalance of speed.
 inline int Octave::Score_neon(uint8_t* patch, Pos pos) const {

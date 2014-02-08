@@ -21,10 +21,10 @@ class OctaveTest : public ::testing::Test {
   // and cleaning up each test, you can define the following methods:
 
   virtual void SetUp() {
-    uint8_t data[height_ * width_];
-    for (int i = 0; i < height_ * width_; ++i)
+    uint8_t data[space_.size()];
+    for (int i = 0; i < space_.size(); ++i)
       data[i] = i;
-    o_.copy(data, width_, height_);
+    o_.copy(data, space_.width, space_.height);
   }
 
   virtual void TearDown() {
@@ -33,14 +33,13 @@ class OctaveTest : public ::testing::Test {
   }
 
   void Zero() {
-    uint8_t data[height_ * width_];
-    for (int i = 0; i < height_ * width_; ++i)
+    uint8_t data[space_.size()];
+    for (int i = 0; i < space_.size(); ++i)
       data[i] = 0;
-    o_.copy(data, width_, height_);
+    o_.copy(data, space_.width, space_.height);
   }
 
-  const int width_ = 17;
-  const int height_ = 33;
+  const Space space_ = Space(17, 33);
   Octave o_;
 };
 
@@ -48,8 +47,8 @@ TEST_F(OctaveTest, Region) {
   Region r = o_.sub_region(FRegion(FPos(0,0), FPos(1,1)));
   EXPECT_EQ(0, r.ll.x);
   EXPECT_EQ(0, r.ll.y);
-  EXPECT_EQ(width_, r.ur.x);
-  EXPECT_EQ(height_, r.ur.y);
+  EXPECT_EQ(o_.width(), r.ur.x);
+  EXPECT_EQ(o_.height(), r.ur.y);
 }
 
 TEST_F(OctaveTest, Region1) {
@@ -64,16 +63,16 @@ TEST_F(OctaveTest, Clip) {
   Region r = o_.clipped_region(FRegion(FPos(0,0), FPos(1,1)), 0);
   EXPECT_EQ(0, r.ll.x);
   EXPECT_EQ(0, r.ll.y);
-  EXPECT_EQ(width_ - 1, r.ur.x);
-  EXPECT_EQ(height_ - 1, r.ur.y);
+  EXPECT_EQ(o_.width() - 1, r.ur.x);
+  EXPECT_EQ(o_.height() - 1, r.ur.y);
 }
 
 TEST_F(OctaveTest, ClipMargin) {
   Region r = o_.clipped_region(FRegion(FPos(0,0), FPos(1,1)), 3);
   EXPECT_EQ(3, r.ll.x);
   EXPECT_EQ(3, r.ll.y);
-  EXPECT_EQ(width_ - 4, r.ur.x);
-  EXPECT_EQ(height_ - 4, r.ur.y);
+  EXPECT_EQ(o_.width() - 4, r.ur.x);
+  EXPECT_EQ(o_.height() - 4, r.ur.y);
 }
 
 // Tests that the Octave::Bar() method does Abc.
@@ -86,8 +85,8 @@ TEST_F(OctaveTest, Copy) {
     data[i] = i;
   o_.copy(data, cols, rows);
 
-  EXPECT_EQ(o_.width_, cols);
-  EXPECT_EQ(o_.height_, rows);
+  EXPECT_EQ(o_.width(), cols);
+  EXPECT_EQ(o_.height(), rows);
 
   for (int row = 0; row < 8; ++row) {
     for (int col = 0; col < 8; ++col) {
@@ -102,8 +101,8 @@ TEST_F(OctaveTest, Fill) {
   Octave o1;
   o1.fill(o_);
 
-  EXPECT_EQ(o1.width_, o_.width_ / 2);
-  EXPECT_EQ(o1.height_, o_.height_ / 2);
+  EXPECT_EQ(o1.width(), o_.width() / 2);
+  EXPECT_EQ(o1.height(), o_.height() / 2);
   EXPECT_EQ(((0+1)*2+(0+1)*17*2)/4, o1.pixel(0,0));
   EXPECT_EQ(((2+3)*2 + (2+3)*17*2)/4, o1.pixel(1,1));
   EXPECT_EQ(((6+7)*2 + (4+5)*17*2)/4, o1.pixel(3,2));
@@ -130,16 +129,16 @@ TEST_F(OctaveTest, Search) {
   FPos fp;
   fp = o_.SearchPosition(FPos(0, 0), patch, 6, &score);
   EXPECT_LT(0, score);
-  ASSERT_NEAR(fp.x * width_, 6, 0.1);
-  ASSERT_NEAR(fp.y * height_, 6, 0.1);
-  EXPECT_GE(0, 6. - fp.x * width_);
-  EXPECT_GE(0, 6. - fp.y * height_);
+  ASSERT_NEAR(fp.x * o_.width(), 6, 0.1);
+  ASSERT_NEAR(fp.y * o_.height(), 6, 0.1);
+  EXPECT_GE(0, 6. - fp.x * o_.width());
+  EXPECT_GE(0, 6. - fp.y * o_.height());
 
   // Search over a large region that includes the exact match.
   fp = o_.SearchPosition(FPos(0, 0), patch, 9, &score);
   EXPECT_EQ(0, score);
-  ASSERT_NEAR(fp.x * width_, 6, 0.1);
-  ASSERT_NEAR(fp.y * height_, 8, 0.1);
+  ASSERT_NEAR(fp.x * o_.width(), 6, 0.1);
+  ASSERT_NEAR(fp.y * o_.height(), 8, 0.1);
 
 }
 
@@ -150,7 +149,7 @@ TEST_F(OctaveTest, ScoreCorner) {
 
   Pos best_point;
   int best_score = 0;
-  for (auto& p : Region(Pos(3,3), Pos(width_ - 4, height_ - 4))) {
+  for (auto& p : Region(Pos(3,3), Pos(o_.width() - 4, o_.height() - 4))) {
     int score = o_.ScoreCorner(p);
     if (score == 0) {
       EXPECT_TRUE(p.x <= 5 ||

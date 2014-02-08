@@ -74,7 +74,7 @@ struct Space {
   Space(int w, int h) : width(w), height(h), stride(w) {}
   Space(int w, int h, int s) : width(w), height(h), stride(s) {}
 
-  inline int size() const { return width * stride; }
+  inline int size() const { return stride * height; }
 
   inline Pos toPos(const FPos& fpos) const {
     return Pos(fpos.x * width, fpos.y * height);

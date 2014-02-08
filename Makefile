@@ -9,6 +9,8 @@ CPPFLAGS= -Iceres-solver-1.8.0/include -I./eigen-eigen-ffa86ffb5570
 OBJS = octave.o octaveset.o grid.o slam.o localmap.o planner.o \
     tracking.o histogram.o descriptor.o corners.o faster.o faster1.o
 
+TESTS = octave octaveset region grid histogram descriptor corners
+
 LDLIBS = -lceres -lopencv_highgui -lopencv_core -lopencv_features2d \
        -lopencv_flann -lopencv_imgproc -lglog -lgomp -lpthread \
        -lprotobuf -lblas -llapack -lcholmod -lm
@@ -18,14 +20,15 @@ DEPS = make.deps
 
 all: $(DEPS) $(TARGET)
 
-test: $(DEPS) octave_test octaveset_test region_test grid_test histogram_test descriptor_test corners_test
+test: $(DEPS) $(TESTS:=_run)
 
 $(TARGET): $(OBJS) main.o
 
 %_test: %_test.o $(OBJS)
 	$(CXX) -o $@ $^ $(LDLIBS) -lgtest
-	./$@
 
+%_run: %_test $(OBJS)
+	./$(@:%_run=%_test)
 
 $(DEPS): $(wildcard *.cpp) Makefile
 	$(CXX) $(CXXFLAGS) -MM $(wildcard *.cpp) > $(DEPS)
