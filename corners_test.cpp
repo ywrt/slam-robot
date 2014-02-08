@@ -18,7 +18,7 @@ class CornersTest : public ::testing::Test {
   // You can remove any or all of the following functions if its body
   // is empty.
 
-  CornersTest() : width_(0), height_(0) {
+  CornersTest() {
     // You can do set-up work for each test here.
   }
 
@@ -37,18 +37,109 @@ class CornersTest : public ::testing::Test {
     // before the destructor).
   }
 
-  void Zero() {
-    uint8_t data[height_ * width_];
-    for (int i = 0; i < height_ * width_; ++i)
-      data[i] = 0;
-    o_.copy(data, width_, height_);
+  Octave OctaveFromMat(const Mat& mat) {
+    int width = mat.cols;
+    int height = mat.rows;
+
+    uint8_t data[height * width];
+    for (int y = 0; y < height; ++y) {
+      for (int x = 0; x < width; ++x) {
+        data[x + y * width] = mat.data[y * mat.step[0] + x];
+      }
+    }
+
+    Octave o;
+    o.copy(data, width, height);
+    return o;
   }
 
-  int width_;
-  int height_;
-  Octave o_;
-  Octave o1_;
 };
+
+TEST(CornerListTest, HandlesEmptyList) {
+  CornerList list;
+  EXPECT_EQ(-1, list.find(Region(Pos(0,0),Pos(1,1))));
+}
+
+TEST(CornerListTest, IgnoresBelow) {
+  CornerList list;
+  list.corners.push_back(Pos(1,1));
+  EXPECT_EQ(-1, list.find(Region(Pos(2,2),Pos(3,3))));
+}
+
+TEST(CornerListTest, IgnoresAbove) {
+  CornerList list;
+  list.corners.push_back(Pos(4,4));
+  EXPECT_EQ(-1, list.find(Region(Pos(2,2),Pos(3,3))));
+}
+
+TEST(CornerListTest, IgnoresToTheLeft) {
+  CornerList list;
+  list.corners.push_back(Pos(1,2));
+  EXPECT_EQ(-1, list.find(Region(Pos(2,2),Pos(3,3))));
+}
+
+TEST(CornerListTest, IgnoresToTheRight) {
+  CornerList list;
+  list.corners.push_back(Pos(4,3));
+  EXPECT_EQ(-1, list.find(Region(Pos(2,2),Pos(3,3))));
+}
+
+TEST(CornerListTest, FindsInRegion) {
+  CornerList list;
+  list.corners.push_back(Pos(3,3));
+  EXPECT_EQ(0, list.find(Region(Pos(3,3),Pos(3,3))));
+}
+
+TEST(CornerListTest, FindsInRegionAndIgnoresOthers) {
+  CornerList list;
+  list.corners.push_back(Pos(2,2));
+  list.corners.push_back(Pos(3,3));
+  list.corners.push_back(Pos(4,4));
+  EXPECT_EQ(1, list.find(Region(Pos(3,3),Pos(3,3))));
+}
+
+TEST(CornerListTest, NextWontAdvanceOutOfRegion) {
+  CornerList list;
+  list.corners.push_back(Pos(2,2));
+  list.corners.push_back(Pos(3,3));
+  list.corners.push_back(Pos(4,4));
+  EXPECT_EQ(-1, list.next(Region(Pos(3,3),Pos(3,3)), 1));
+}
+TEST(CornerListTest, IteratesOverRegion) {
+  CornerList list;
+  for (auto& p: Region(Pos(0,0), Pos(3,3)))
+    list.corners.push_back(p);
+  Region r(Pos(1,1), Pos(2,2));
+
+  int count = 0;
+  for (int i = list.find(r); i >= 0; i = list.next(r, i)) {
+    ++count;
+    const auto& p = list.corners[i];
+    EXPECT_LT(0, p.x) << p.y;
+    EXPECT_LT(0, p.y);
+    EXPECT_GT(3, p.x) << p.y;
+    EXPECT_GT(3, p.y);
+  }
+  EXPECT_EQ(4, count);
+}
+
+TEST(CornerListTest, IteratesOverLargerRegion) {
+  CornerList list;
+  for (auto& p: Region(Pos(0,0), Pos(11,23)))
+    list.corners.push_back(p);
+  Region r(Pos(7,5), Pos(9,16));
+
+  int count = 0;
+  for (int i = list.find(r); i >= 0; i = list.next(r, i)) {
+    ++count;
+    const auto& p = list.corners[i];
+    EXPECT_LE(r.ll.x, p.x) << p.y;
+    EXPECT_LE(r.ll.y, p.y);
+    EXPECT_GE(r.ur.x, p.x) << p.y;
+    EXPECT_GE(r.ur.y, p.y);
+  }
+  EXPECT_EQ((r.ur.x - r.ll.x + 1) * (r.ur.y - r.ll.y + 1), count);
+}
 
 TEST_F(CornersTest, NonMax_SingletonIsNoOp) {
   vector<faster::Corner> corners;
@@ -172,49 +263,57 @@ TEST_F(CornersTest, NonMax_AscendingDenseSupression) {
 }
 
 TEST_F(CornersTest, Image) {
-  Mat mat;
-  mat = imread("data/Wood1/view1.png", CV_LOAD_IMAGE_GRAYSCALE);
+  Mat mat = imread("data/Wood1/view1.png", CV_LOAD_IMAGE_GRAYSCALE);
+  Octave o(OctaveFromMat(mat));
+  auto corners = FindCorners(o, 20, 15);
 
-  width_ = mat.cols;
-  height_ = mat.rows;
 
-  uint8_t data[height_ * width_];
-  for (int y = 0; y < height_; ++y) {
-    for (int x = 0; x < width_; ++x) {
-      data[x + y * width_] = mat.data[y * mat.step[0] + x];
-    }
-  }
+  Mat mat1 = imread("data/Wood1/view5.png", CV_LOAD_IMAGE_GRAYSCALE);
+  Octave o1(OctaveFromMat(mat1));
+  auto corners1 = FindCorners(o1, 20, 15);
 
-  o_.copy(data, width_, height_);
-
-  auto corners = FindCorners(o_);
-#if 1
-  for (auto&c : corners) {
+  for (auto&c : corners.corners) {
     line(mat, Point(c.x, c.y - 3), Point(c.x, c.y + 3), Scalar(0,0,0), 1, 8);
     line(mat, Point(c.x - 3, c.y), Point(c.x + 3, c.y), Scalar(0,0,0), 1, 8);
   }
 
-  namedWindow( "Display window", WINDOW_AUTOSIZE );// Create a window for display.
-  imshow( "Display window", mat);                   // Show our image inside it.
-  waitKey(0);
+  for (auto&c : corners1.corners) {
+    line(mat1, Point(c.x, c.y - 3), Point(c.x, c.y + 3), Scalar(0,0,0), 1, 8);
+    line(mat1, Point(c.x - 3, c.y), Point(c.x + 3, c.y), Scalar(0,0,0), 1, 8);
+  }
+
+  namedWindow( "Mat1", WINDOW_AUTOSIZE );// Create a window for display.
+  namedWindow( "Mat2", WINDOW_AUTOSIZE );// Create a window for display.
+  imshow( "Mat1", mat);                   // Show our image inside it.
+  imshow( "Mat2", mat);                   // Show our image inside it.
+  //waitKey(0);
+
+}
+
+TEST_F(CornersTest, Video) {
+#if 0
+
+  cv::namedWindow( "Display window", CV_WINDOW_AUTOSIZE );// Create a window for display.
+  cv::VideoCapture vid("data/VID_20130101_071510.mp4");
+
+  Mat img, t, out, grey;
+  while (vid.read(img)) {
+    cv::transpose(img, t);
+    cv::resize(t, out, Size(t.cols / 2, t.rows / 2));
+    cv::cvtColor(out, grey, CV_RGB2GRAY);
+
+    Octave o(OctaveFromMat(grey));
+
+    auto corners = FindCorners(o, 20, 10);
+    for (auto&c : corners.corners) {
+      line(grey, Point(c.x, c.y - 3), Point(c.x, c.y + 3), Scalar(0,0,0), 1, 8);
+      line(grey, Point(c.x - 3, c.y), Point(c.x + 3, c.y), Scalar(0,0,0), 1, 8);
+    }
+
+    imshow( "Display window", grey);                   // Show our image inside it.
+    waitKey(0);
+  }
 #endif
-  return;
-
-  for (int y = 0; y < height_; ++y) {
-    for (int x = 0; x < width_; ++x) {
-      mat.data[y * mat.step[0] + x] = o_.pixel(x, y);
-    }
-  }
-
-  mat = imread("data/Wood1/view5.png", CV_LOAD_IMAGE_GRAYSCALE);
-
-  for (int y = 0; y < height_; ++y) {
-    for (int x = 0; x < width_; ++x) {
-      data[x + y * width_] = mat.data[y * mat.step[0] + x];
-    }
-  }
-  o1_.copy(data, width_, height_);
-  o1_.Smooth();
 }
 
 }  // namespace

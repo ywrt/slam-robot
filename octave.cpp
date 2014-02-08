@@ -210,48 +210,52 @@ void Octave::fillScale_neon(uint8_t *patch, const FPos& fpos) const {
 
 
 // Copy a patch from the given position in the octave.
-void Octave::FillPatch(uint8_t *patch, const FPos& fpos) const {
+Patch Octave::GetPatch(const FPos& fpos) const {
   Pos p(pos(fpos));
+  Patch patch;
+  uint8_t* patch_ptr = &patch.data[0];
 
   uint8_t* ptr = pixel_ptr(p - patch_radius);
   for (int ry = 0; ry < patch_radius*2; ++ry) {
     for (int rx = 0 ; rx < patch_radius*2 ; ++rx) {
-      *patch++ = ptr[rx];
+      *patch_ptr++ = ptr[rx];
     }
     ptr += space_.stride;
   }
+  return patch;
 }
 
-int Octave::Score(const uint8_t* patch, const Pos& pos) const {
+int Octave::Score(const Patch& patch, const Pos& pos) const {
   uint8_t* ptr = pixel_ptr(pos - patch_radius);
+  const uint8_t* patch_ptr = &patch.data[0];
 
-   const uint8_t* guass_ptr = guass_weights;
-   int step = space_.stride;
-   int acc = 0;
+ const uint8_t* guass_ptr = guass_weights;
+ int step = space_.stride;
+ int acc = 0;
 
-   for (int r = 8; r > 0 ; --r) {
-     int16_t diff[8];
-     for (int c = 0; c < 8; ++c)
-       diff[c] = abs((int16_t)ptr[c] - patch[c]);
-     for (int c = 0; c < 8; ++c)
-       diff[c] = abs(diff[c]);
-     for (int c = 0; c < 8; ++c)
-       diff[c] = diff[c] * guass_ptr[c];
-     for (int c = 0; c < 8; ++c)
-       acc += diff[c];
+ for (int r = 8; r > 0 ; --r) {
+   int16_t diff[8];
+   for (int c = 0; c < 8; ++c)
+     diff[c] = abs((int16_t)ptr[c] - patch_ptr[c]);
+   for (int c = 0; c < 8; ++c)
+     diff[c] = abs(diff[c]);
+   for (int c = 0; c < 8; ++c)
+     diff[c] = diff[c] * guass_ptr[c];
+   for (int c = 0; c < 8; ++c)
+     acc += diff[c];
 
-     ptr += step;
-     patch += 8;
-     guass_ptr += 8;
-   }
+   ptr += step;
+   patch_ptr += 8;
+   guass_ptr += 8;
+ }
 
-   return acc;
+ return acc;
 }
 
 // Search around a radius of the current position in this octave for the
 // best match for this patch.
 FPos Octave::SearchPosition(const FPos &fp,
-    const uint8_t* patch, int radius, int* bestptr) const {
+    const Patch& patch, int radius, int* bestptr) const {
   Pos p = pos(fp);
 
   Pos ll = clip_pos(p - radius, patch_radius);
@@ -280,8 +284,7 @@ FPos Octave::SearchPosition(const FPos &fp,
 // best match for this patch.
 int Octave::ScorePosition(const FPos &fp,
     int radius) const {
-  uint8_t patch[64];
-  FillPatch(patch, fp);
+  Patch patch(GetPatch(fp));
 
   Pos p = pos(fp);
   Pos ll = clip_pos(p - radius, patch_radius);

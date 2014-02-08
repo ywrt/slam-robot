@@ -51,10 +51,10 @@ Pos OctaveSet::pos0(const FPos& fp) const {
 }
 
 void OctaveSet::FillPatchSet(const FPos& fp, PatchSet* ps) const {
-  octave3_->FillPatch(ps->octave3.data, fp);
-  octave2_->FillPatch(ps->octave2.data, fp);
-  octave1_->FillPatch(ps->octave1.data, fp);
-  octave0_->FillPatch(ps->octave0.data, fp);
+  ps->octave3 = octave3_->GetPatch(fp);
+  ps->octave2 = octave2_->GetPatch(fp);
+  ps->octave1 = octave1_->GetPatch(fp);
+  ps->octave0 = octave0_->GetPatch(fp);
 }
 
 // 'pos' is the estimated position in the current OctaveSet needing
@@ -65,10 +65,10 @@ FPos OctaveSet::UpdatePosition(const PatchSet& ps,
   FPos fp(pos);
 
   int suma;
-  fp = octave3_->SearchPosition(fp, ps.octave3.data, 2, &suma);
-  fp = octave2_->SearchPosition(fp, ps.octave2.data, 2, &suma);
-  fp = octave1_->SearchPosition(fp, ps.octave1.data, 2, &suma);
-  fp = octave0_->SearchPosition(fp, ps.octave0.data, 2, &suma);
+  fp = octave3_->SearchPosition(fp, ps.octave3, 2, &suma);
+  fp = octave2_->SearchPosition(fp, ps.octave2, 2, &suma);
+  fp = octave1_->SearchPosition(fp, ps.octave1, 2, &suma);
+  fp = octave0_->SearchPosition(fp, ps.octave0, 2, &suma);
 
   return fp;
 }
@@ -78,7 +78,7 @@ FPos OctaveSet::UpdatePosition(const PatchSet& ps,
 // 'ppos' is the known position in the previous 'pimage' octaveset
 FPos OctaveSet::UpdatePosition(const OctaveSet& pimage,
                                const FPos& pos, const FPos& ppos) const {
-  uint8_t patch[64];
+  Patch patch;
   FPos fp(pos);
   if (!pimage.octave3_->contains(ppos, Octave::patch_radius)) {
     Pos p = octave3_->pos(ppos);
@@ -86,16 +86,16 @@ FPos OctaveSet::UpdatePosition(const OctaveSet& pimage,
     return FPos::invalid();
   }
   int suma;
-  pimage.octave3_->FillPatch(patch, ppos);
+  patch = pimage.octave3_->GetPatch(ppos);
   fp = octave3_->SearchPosition(fp, patch, 2, &suma);
   fwd_hist[3].add(suma);
-  pimage.octave2_->FillPatch(patch, ppos);
+  patch = pimage.octave2_->GetPatch(ppos);
   fp = octave2_->SearchPosition(fp, patch, 2, &suma);
   fwd_hist[2].add(suma);
-  pimage.octave1_->FillPatch(patch, ppos);
+  patch = pimage.octave1_->GetPatch(ppos);
   fp = octave1_->SearchPosition(fp, patch, 2, &suma);
   fwd_hist[1].add(suma);
-  pimage.octave0_->FillPatch(patch, ppos);
+  patch = pimage.octave0_->GetPatch(ppos);
   fp = octave0_->SearchPosition(fp, patch, 2, &suma);
   fwd_hist[0].add(suma);
   // Now search in the previous image.
@@ -107,16 +107,16 @@ FPos OctaveSet::UpdatePosition(const OctaveSet& pimage,
     LOG("Out of image fail %d,%d.\n", p.x, p.y);
     return FPos::invalid();
   }
-  octave3_->FillPatch(patch, fp);
+  patch = octave3_->GetPatch(fp);
   rfp = pimage.octave3_->SearchPosition(rfp, patch, 2, &sumb);
   rev_hist[3].add(sumb);
-  octave2_->FillPatch(patch, fp);
+  patch = octave2_->GetPatch(fp);
   rfp = pimage.octave2_->SearchPosition(rfp, patch, 2, &sumb);
   rev_hist[2].add(sumb);
-  octave1_->FillPatch(patch, fp);
+  patch = octave1_->GetPatch(fp);
   rfp = pimage.octave1_->SearchPosition(rfp, patch, 2, &sumb);
   rev_hist[1].add(sumb);
-  octave0_->FillPatch(patch, fp);
+  patch = octave0_->GetPatch(fp);
   rfp = pimage.octave0_->SearchPosition(rfp, patch, 2, &sumb);
   rev_hist[0].add(sumb);
 

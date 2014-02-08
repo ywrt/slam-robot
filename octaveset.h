@@ -11,12 +11,7 @@
 #include "imgtypes.h"
 #include "region.h"
 #include "histogram.h"
-
-class Octave;
-
-struct Patch {
-  uint8_t data[64];
-};
+#include "octave.h"
 
 struct PatchSet {
   Patch octave0;

@@ -33,6 +33,13 @@ public:
   Region() :
     ll(0,0), ur(-1, -1) {}
 
+  bool contains(const Pos& p) const {
+    return p.x >= ll.x &&
+      p.x <= ur.x &&
+      p.y >= ll.y &&
+      p.y <= ur.y;
+  }
+
   class iterator {
   public:
     iterator(const Region* region) :

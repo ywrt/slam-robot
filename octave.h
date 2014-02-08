@@ -16,6 +16,10 @@
 
 extern const uint8_t guass_weights[];
 
+struct Patch {
+  uint8_t data[64];
+};
+
 class Octave {
 public:
   static const int patch_radius = 4;
@@ -112,14 +116,16 @@ public:
   void fillScale_neon(uint8_t *patch, const FPos& fpos) const;
 
 
-  void FillPatch(uint8_t *patch, const FPos& fpos) const;
+  Patch GetPatch(const FPos& fpos) const;
 
-  int Score(const uint8_t* patch, const Pos& pos) const;
+  // Measure the disparity between the supplied patch, and the
+  // image as position 'pos'.
+  int Score(const Patch& patch, const Pos& pos) const;
 
   // Search around a radius of the current position in this octave for the
   // best match for this patch.
-  FPos SearchPosition(const FPos &fp,
-      const uint8_t* patch, int radius, int* bestptr) const;
+  FPos SearchPosition(const FPos &fp, const Patch& patch,
+      int radius, int* bestptr) const;
 
   // Search around a radius of the current position in this octave for the
   // best match of the patch at the current positions. Good matches are

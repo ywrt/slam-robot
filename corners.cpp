@@ -1,8 +1,10 @@
 #include <stdio.h>
+#include <algorithm>
 
 #include "faster.h"
 #include "imgtypes.h"
 #include "octave.h"
+#include "corners.h"
 
 using namespace std;
 
@@ -76,21 +78,79 @@ void SupressNonMax(int k, vector<faster::Corner>* cptr) {
   //printf("Loops %d\n", loops);
 }
 
-vector<Pos> FindCorners(const Octave& img) {
-  auto corners = FindFasterCorners(img, 5);
+CornerList FindCorners(const Octave& img, int threshold, int range) {
+  auto corners = FindFasterCorners(img, threshold);
   for (const auto& c : corners) {
     if (c.score < 0)
       continue;
     //printf("%d,%d => %d\n", c.x, c.y, c.score);
   }
 
-  SupressNonMax(15, &corners);
+  SupressNonMax(range, &corners);
 
-  vector<Pos> result;
+  CornerList result;
   for (const auto& c : corners) {
     if (c.score < 0)
       continue;
-    result.push_back(Pos(c.x, c.y));
+    result.corners.push_back(Pos(c.x, c.y));
   }
   return result;
+}
+
+CornerList::CornerList(const std::vector<Pos>& c) : corners(c) {
+  std::sort(corners.begin(),
+      corners.end(),
+      [](const Pos& a, const Pos& b) -> bool {
+        if (a.y != b.y)
+          return a.y < b.y;
+        return a.x < b.x;
+      });
+}
+
+int CornerList::find(const Region& r) const {
+  return next(r, -1);
+}
+
+// Find first corner that is in the region.
+// We use then lowest y, and then the lowest x.
+// We start from the first corner after 'index'.
+int CornerList::next(const Region& r, int index) const {
+  ++index;
+  if ((size_t)index == corners.size())
+    return -1;  // End of corner list.
+
+  while (1) {
+    // If index is in the region, we're done.
+    const Pos& p = corners[index];
+    if (r.contains(p))
+      return index;
+
+    // If we're to the left of the region, we search
+    // along the current line for the beginning of the region.
+    // otherwise we search from the next line.
+    Pos corner;
+    if (p.x < r.ll.x)
+      corner = Pos(r.ll.x, p.y);
+    else
+      corner = Pos(r.ll.x, p.y + 1);
+
+    int left = index;
+    int right = corners.size() - 1;
+
+    while (1) {
+      int mid = (left + right) / 2;
+      const Pos& p = corners[mid];
+      if (p < corner) {
+        left = mid + 1;
+      } else {
+        right = mid;
+      }
+      if (left >= right)
+        break;
+    }
+    if (left > right || corners[left] > r.ur)
+      return -1;
+
+    index = left;
+  }
 }

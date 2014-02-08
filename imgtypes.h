@@ -65,6 +65,16 @@ inline  bool operator == (const Pos& a, const Pos& b) {
 inline  bool operator != (const Pos& a, const Pos& b) {
   return !(a == b);
 }
+inline bool operator < (const Pos& a, const Pos& b) {
+  if (a.y != b.y)
+    return a.y < b.y;
+  return a.x < b.x;
+}
+inline bool operator > (const Pos& a, const Pos& b) {
+  if (a.y != b.y)
+    return a.y > b.y;
+  return a.x > b.x;
+}
 
 // A coordinate space.
 struct Space {
