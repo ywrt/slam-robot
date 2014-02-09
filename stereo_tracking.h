@@ -10,17 +10,13 @@
 
 #include <stdint.h>
 
-class Pose;
 class LocalMap;
 class OctaveSet;
 
-struct  Tracking {
-  Tracking();
-  int UpdateCorners(LocalMap* map, int frame_num);
-  void FindNewCorners(LocalMap* map, int frame_num);
-  int ProcessFrame(uint8_t* data, int width, int height, LocalMap* map);
+struct  StereoTracking {
+  StereoTracking();
 
-  void flip();
+  int ProcessFrame(int width, int height, const uint8_t* left, const uint8_t* right, LocalMap* map);
 
   static const int kSearchFrames = 2;
   OctaveSet* curr;

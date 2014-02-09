@@ -262,6 +262,33 @@ TEST_F(CornersTest, NonMax_AscendingDenseSupression) {
   }
 }
 
+int FindBestCorner(const Octave& img1, const Octave& img2, const CornerList& corners, const Pos& c, bool is_left) {
+  Region r;
+  if (is_left) {
+    r = Region(Pos(0, c.y - 2), Pos(c.x + 3, c.y+2));
+  } else {
+    r = Region(Pos(c.x - 3, c.y - 2), Pos(1<<28, c.y + 2));
+  }
+
+  Patch patch(img1.GetPatch(img1.space().convert(c)));
+  int best_score = 1<<30;
+  int best_idx = -1;
+  for (int idx = corners.find(r); idx >= 0; idx = corners.next(r, idx)) {
+    const Pos& p(corners.corners[idx]);
+    int score = img2.Score(patch, p); // int score; fpos = o1.SearchPosition(o1.space().convert(p), patch, 3, &score);
+    if (score < best_score) {
+      best_score = score;
+      best_idx = idx;
+    }
+  }
+  if (best_idx < 0)
+    return -1;
+  if (best_score > 4000)
+    return -1;
+  //printf("score %d\n", best_score);
+  return best_idx;
+}
+
 TEST_F(CornersTest, Image) {
   Mat mat = imread("data/Wood1/view1.png", CV_LOAD_IMAGE_GRAYSCALE);
   Octave o(OctaveFromMat(mat));
@@ -270,23 +297,37 @@ TEST_F(CornersTest, Image) {
 
   Mat mat1 = imread("data/Wood1/view5.png", CV_LOAD_IMAGE_GRAYSCALE);
   Octave o1(OctaveFromMat(mat1));
-  auto corners1 = FindCorners(o1, 20, 15);
+  auto corners1 = FindCorners(o1, 18, 15);
 
   for (auto&c : corners.corners) {
+    int idx = FindBestCorner(o, o1, corners1, c, true);
+    if (idx < 0)
+      continue;
+    const Pos& p = corners1.corners[idx];
+
+    // Now search in reverse to check we ended up where we started.
+    int rev_idx = FindBestCorner(o1, o, corners, p, false);
+    if (rev_idx < 0)
+      continue;
+
+    const Pos& c1 = corners.corners[rev_idx];
+    if (c1 != c) {
+      printf("Failed to reverse. [%d,%d] != [%d,%d]\n", c1.x, c1.y, c.x, c.y);
+      continue;
+    }
+
     line(mat, Point(c.x, c.y - 3), Point(c.x, c.y + 3), Scalar(0,0,0), 1, 8);
     line(mat, Point(c.x - 3, c.y), Point(c.x + 3, c.y), Scalar(0,0,0), 1, 8);
-  }
 
-  for (auto&c : corners1.corners) {
-    line(mat1, Point(c.x, c.y - 3), Point(c.x, c.y + 3), Scalar(0,0,0), 1, 8);
-    line(mat1, Point(c.x - 3, c.y), Point(c.x + 3, c.y), Scalar(0,0,0), 1, 8);
+    line(mat1, Point(p.x, p.y - 3), Point(p.x, p.y + 3), Scalar(0,0,0), 1, 8);
+    line(mat1, Point(p.x - 3, p.y), Point(p.x + 3, p.y), Scalar(0,0,0), 1, 8);
   }
 
   namedWindow( "Mat1", WINDOW_AUTOSIZE );// Create a window for display.
   namedWindow( "Mat2", WINDOW_AUTOSIZE );// Create a window for display.
   imshow( "Mat1", mat);                   // Show our image inside it.
-  imshow( "Mat2", mat);                   // Show our image inside it.
-  //waitKey(0);
+  imshow( "Mat2", mat1);                   // Show our image inside it.
+  waitKey(0);
 
 }
 

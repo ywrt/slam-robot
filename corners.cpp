@@ -11,8 +11,8 @@ using namespace std;
 // Return scored corners. Corners are sorted by Y.
 vector<faster::Corner> FindFasterCorners(const Octave& img, int k) {
   // Find corners, in order.
-  vector<faster::Corner> corners = faster::faster_detect(img.image_, img.space_.width, img.space_.height, img.space_.stride, k);
-  faster::faster_score(img.image_, img.space_.width, img.space_.height, img.space_.stride, k, &corners);
+  vector<faster::Corner> corners = faster::faster_detect((uint8_t*)img.data(), img.space().width, img.space().height, img.space().stride, k);
+  faster::faster_score((uint8_t*)img.data(), img.space().width, img.space().height, img.space().stride, k, &corners);
 
   return corners;
 }

@@ -21,14 +21,16 @@
 
 
 Tracking::Tracking() :
-curr(new OctaveSet),
-prev {NULL, } {
+    curr(new OctaveSet),
+    prev {NULL, } {
   for (int i = 0; i < kSearchFrames; ++i) {
     prev[i] = new OctaveSet;
   }
 }
 
-void Tracking::ComputeHomography(const Pose& f1, const Pose& f2, Matrix3d* homog) {
+namespace {
+
+void ComputeHomography(const Pose& f1, const Pose& f2, Matrix3d* homog) {
   Matrix3d rotate;
   rotate = f2.rotation_ * f1.rotation_.inverse();
 
@@ -49,7 +51,7 @@ void Tracking::ComputeHomography(const Pose& f1, const Pose& f2, Matrix3d* homog
       AngleAxisd(M_PI/2, Vector3d::UnitZ());
 }
 
-Vector2d Tracking::ComputePoint(
+Vector2d ComputePoint(
     const Vector2d& point,
     const Matrix3d& homog) {
   Vector3d v;
@@ -60,6 +62,8 @@ Vector2d Tracking::ComputePoint(
   v.block<2,1>(0,0) /= v(2);
   return v.block<2,1>(0,0);
 }
+
+}  // namespace
 
 int Tracking::UpdateCorners(LocalMap* map, int frame_num) {
   Matrix3d homography[3];
@@ -109,16 +113,16 @@ int Tracking::UpdateCorners(LocalMap* map, int frame_num) {
     ++updated;
   }
 #if 0
-for (int i = 0; i < 4; ++i) {
-  printf("Octave %d\n", i);
-  cout << "fwd\n" << curr->fwd_hist[i].str();
-  cout << "rev\n" << curr->rev_hist[i].str();
-}
+  for (int i = 0; i < 4; ++i) {
+    printf("Octave %d\n", i);
+    cout << "fwd\n" << curr->fwd_hist[i].str();
+    cout << "rev\n" << curr->rev_hist[i].str();
+  }
 #endif
 
 
-printf("Searched %d, updated %d\n", searched, updated);
-return 0;
+  printf("Searched %d, updated %d\n", searched, updated);
+  return 0;
 }
 
 void Tracking::FindNewCorners(LocalMap* map, int frame_num) {

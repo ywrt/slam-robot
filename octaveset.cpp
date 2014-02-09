@@ -39,7 +39,7 @@ OctaveSet::~OctaveSet() {
 }
 
 void OctaveSet::FillOctaves(uint8_t* data, int width, int height) {
-  octave0_->copy((uint8_t*)data, width, height); // 2ms
+  *octave0_ = Octave(data, width, height); // 2ms
   octave1_->fill(*octave0_);  // 6 ms
   octave2_->fill(*octave1_);  // 1 ms
   octave3_->fill(*octave2_);  // 1 ms
@@ -80,7 +80,7 @@ FPos OctaveSet::UpdatePosition(const OctaveSet& pimage,
                                const FPos& pos, const FPos& ppos) const {
   Patch patch;
   FPos fp(pos);
-  if (!pimage.octave3_->contains(ppos, Octave::patch_radius)) {
+  if (!pimage.octave3_->contains(ppos, Patch::kPatchRadius)) {
     Pos p = octave3_->pos(ppos);
     LOG("Out of image fail %d,%d.\n", p.x, p.y);
     return FPos::invalid();
@@ -102,7 +102,7 @@ FPos OctaveSet::UpdatePosition(const OctaveSet& pimage,
 
   int sumb;
   FPos rfp(ppos);  // Reverse position.
-  if (!octave3_->contains(fp, Octave::patch_radius)) {
+  if (!octave3_->contains(fp, Patch::kPatchRadius)) {
     Pos p = octave3_->pos(fp);
     LOG("Out of image fail %d,%d.\n", p.x, p.y);
     return FPos::invalid();

@@ -18,6 +18,7 @@ using namespace Eigen;
 using namespace std;
 
 // Position and orientation of a frame camera.
+// measures in world coordinates.
 struct Pose {
   Pose() :
     rotation_ {1,0,0,0},
@@ -63,39 +64,28 @@ struct TrackedPoint {
     bad_(false)
     { }
 
+    // Pointer to an array of 4 doubles being [X, Y, Z, W],
+    // the homogeous coordinates in world space.
     const double* location() const { return location_.data(); }
     double* location() { return location_.data(); }
 
+    // The last frame in which this point was observed.
     int last_frame() const {
       if (observations_.size() < 1)
         return -1;
       return observations_.back().frame_ref;
     }
+
+    // The most recent observation.
     const Vector2d& last_point() const {
       return observations_.back().pt;
     }
 
+    // The number of observations of this point.
     int num_observations() const { return observations_.size(); }
-
-    // Match a descriptor against this point. 'max_distance'
-    // is the maximum descriptor distance allowed to succeed.
-    // If there's a match, return true and update 'max_distance'
-    // to the found distance.
-    bool match(const Descriptor& desc, int* max_distance) {
-      bool matched = false;
-      for (const auto& d : descriptors_) {
-        int distance = d.distance(desc);
-        if (distance > *max_distance)
-          continue;
-        *max_distance = distance;
-        matched = true;
-      }
-      return matched;
-    }
 
     Vector4d location_;  // Homogeneous location in world.
     vector<Observation> observations_;
-    vector<Descriptor> descriptors_;
     bool bad_;
 };
 
@@ -114,8 +104,6 @@ struct LocalMap {
   vector<Pose> frames;
   vector<int> keyframes;
   vector<TrackedPoint> points;
-  vector<Observation> obs;
-
 };
 
 #endif /* LOCALMAP_H_ */

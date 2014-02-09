@@ -34,8 +34,6 @@ int LocalMap::AddFrame() {
 }
 
  void LocalMap::Clean() {
-   // SortObs sorter;
-   // sort(map->obs.begin(), map->obs.end(), sorter);
    Histogram err_hist(20);
 
    int curr_frame = frames.size() - 1;

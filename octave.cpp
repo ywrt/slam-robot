@@ -15,6 +15,21 @@
 #include "octave.h"
 #include "region.h"
 
+Octave::Octave(const uint8_t* data, int width, int height) :
+    space_(width, height), image_(new uint8_t[space_.size()]) {
+  memcpy(image_, data, space_.size());
+}
+Octave::Octave(const uint8_t* data, int width, int height, int stride) :
+    space_(width, height, stride), image_(new uint8_t[space_.size()]) {
+  memcpy(image_, data, space_.size());
+}
+
+Octave::~Octave() { delete[] image_; image_ = NULL; }
+
+Octave Octave::clone() const {
+  return Octave(image_, space_.width, space_.height, space_.stride);
+}
+
 const uint8_t guass_weights[] = {
     4,   6,   9,  11,  11,   9,   6,   4,
     6,  11,  15,  18,  18,  15,  11,   6,
@@ -31,11 +46,9 @@ const uint8_t guass_weights[] = {
 // and half the height, and save the result into this octave.
 void Octave::fill(const Octave& prev) {
   if (image_ == NULL || space_.width != prev.space_.width / 2 || space_.height != prev.space_.height/2) {
-    if (image_)
-      free(image_);
-    image_ = NULL;
+    if (image_) delete[] image_;
     space_ = Space(prev.space_.width / 2, prev.space_.height / 2);
-    image_ = (uint8_t*) malloc(space_.size());
+    image_ = new uint8_t[space_.size()];
   }
 
   for (int y = 0; y < space_.height;++y) {
@@ -49,21 +62,10 @@ void Octave::fill(const Octave& prev) {
   }
 }
 
-void Octave::copy(uint8_t* image, int width, int height) {
-  if (image_ == NULL || space_ != Space(width, height)) {
-    if (image_)
-      free(image_);
-    image_ = NULL;
-    space_ = Space(width, height);
-    image_ = (uint8_t*) malloc(space_.size());
-  }
-  memcpy(image_, image, space_.size());
-}
-
 #ifdef NEON
 // Fixed size 8x8 scoring. uses neon intrinsics for some sembalance of speed.
 inline int Octave::Score_neon(uint8_t* patch, Pos pos) const {
-  uint8_t* ptr = pixel_ptr(pos - int(patch_radius));
+  uint8_t* ptr = pixel_ptr(pos - int(Patch::kPatchRadius));
 
   const uint8_t* guass_ptr = guass_weights;
   int step = space_.stride;
@@ -96,8 +98,8 @@ FPos Octave::searchPosition_neon(const FPos &fp,
     uint8_t* patch, int radius, int* bestptr) const {
   Pos p = pos(fp);
 
-  Pos ll = clip_pos(p - radius, patch_radius);
-  Pos ur = clip_pos(p + radius, patch_radius+1);
+  Pos ll = clip_pos(p - radius, Patch::kPatchRadius);
+  Pos ur = clip_pos(p + radius, Patch::kPatchRadius + 1);
 
   int best = (1<<30);
   Pos best_pos(-1, -1);
@@ -124,7 +126,7 @@ FPos Octave::searchPosition_neon(const FPos &fp,
   for (int py = ll.y ; py <= ur.y; ++py) {
 
     for (int px = ll.x ; px <= ur.x; ++px) {
-      uint8_t* ptr = pixel_ptr(Pos(px,py) - patch_radius);
+      uint8_t* ptr = pixel_ptr(Pos(px,py) - kPatchRadius);
 
       uint8x8_t img_row0 = vld1_u8(ptr);
       ptr += step;
@@ -197,8 +199,8 @@ FPos Octave::searchPosition_neon(const FPos &fp,
 void Octave::fillScale_neon(uint8_t *patch, const FPos& fpos) const {
   Pos p(pos(fpos));
 
-  uint8_t* ptr = pixel_ptr(p - patch_radius);
-  for (int ry = 0; ry < patch_radius*2; ++ry) {
+  uint8_t* ptr = pixel_ptr(p - kPatchRadius);
+  for (int ry = 0; ry < kPatchRadius*2; ++ry) {
     vst1_u8 (patch, vld1_u8(ptr));
     ptr += space_.stride;
     patch += 8;
@@ -215,9 +217,9 @@ Patch Octave::GetPatch(const FPos& fpos) const {
   Patch patch;
   uint8_t* patch_ptr = &patch.data[0];
 
-  uint8_t* ptr = pixel_ptr(p - patch_radius);
-  for (int ry = 0; ry < patch_radius*2; ++ry) {
-    for (int rx = 0 ; rx < patch_radius*2 ; ++rx) {
+  uint8_t* ptr = pixel_ptr(p - Patch::kPatchRadius);
+  for (int ry = 0; ry < Patch::kPatchSize; ++ry) {
+    for (int rx = 0 ; rx < Patch::kPatchSize ; ++rx) {
       *patch_ptr++ = ptr[rx];
     }
     ptr += space_.stride;
@@ -226,7 +228,7 @@ Patch Octave::GetPatch(const FPos& fpos) const {
 }
 
 int Octave::Score(const Patch& patch, const Pos& pos) const {
-  uint8_t* ptr = pixel_ptr(pos - patch_radius);
+  uint8_t* ptr = pixel_ptr(pos - Patch::kPatchRadius);
   const uint8_t* patch_ptr = &patch.data[0];
 
  const uint8_t* guass_ptr = guass_weights;
@@ -258,8 +260,8 @@ FPos Octave::SearchPosition(const FPos &fp,
     const Patch& patch, int radius, int* bestptr) const {
   Pos p = pos(fp);
 
-  Pos ll = clip_pos(p - radius, patch_radius);
-  Pos ur = clip_pos(p + radius, patch_radius+1);
+  Pos ll = clip_pos(p - radius, Patch::kPatchRadius);
+  Pos ur = clip_pos(p + radius, Patch::kPatchRadius + 1);
 
   int best = (1<<30);
   Pos best_pos(Pos::invalid());
@@ -287,8 +289,8 @@ int Octave::ScorePosition(const FPos &fp,
   Patch patch(GetPatch(fp));
 
   Pos p = pos(fp);
-  Pos ll = clip_pos(p - radius, patch_radius);
-  Pos ur = clip_pos(p + radius, patch_radius + 1);
+  Pos ll = clip_pos(p - radius, Patch::kPatchRadius);
+  Pos ur = clip_pos(p + radius, Patch::kPatchRadius + 1);
 
   int min_score = (1<<30);
   for (auto& point : Region(ll, ur)) {
@@ -352,9 +354,8 @@ int Octave::ScoreCorner(const Pos& pos) const {
 }
 
 void Octave::Smooth() {
-  Octave orig;
   for (int loop = 0; loop < 3; ++loop) {
-    orig.copy(image_, space_.width, space_.height);
+    Octave orig = clone();
 
     for (int y = 1; y < space_.height - 1; ++y) {
       for (int x = 1; x < space_.width - 1; ++x) {
