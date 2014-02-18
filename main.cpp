@@ -139,22 +139,22 @@ int main(int argc, char*argv[]) {
     //UpdateMap(&map, frame, normed_points, descriptors);
 
     for (const auto& point : map.points) {
-      if (point.last_frame() == frame - 1) {
-        DrawCross(&out, point.last_point(), 2, Scalar(255,0,0));
+      if (point->last_frame() == frame - 1) {
+        DrawCross(&out, point->last_point(), 2, Scalar(255,0,0));
         continue;
       }
-      if (point.last_frame() != frame)
+      if (point->last_frame() != frame)
         continue;
-      if (point.num_observations() == 1) {
-        DrawCross(&out, point.last_point(), 2, Scalar(0,255,0));
+      if (point->num_observations() == 1) {
+        DrawCross(&out, point->last_point(), 2, Scalar(0,255,0));
         continue;
       }
-      int num = point.observations_.size();
+      int num = point->observations_.size();
       for (int i = 0; i < (num - 1); ++i) {
-        DrawLine(&out, point.observations_[i].pt,
-            point.observations_[i+1].pt, Scalar(0,0,0));
+        DrawLine(&out, point->observations_[i].pt,
+            point->observations_[i+1].pt, Scalar(0,0,0));
       }
-      DrawCross(&out, point.last_point(), 5, Scalar(0,0,255));
+      DrawCross(&out, point->last_point(), 5, Scalar(0,0,255));
     }
 
     cv::imshow("Display window", out);

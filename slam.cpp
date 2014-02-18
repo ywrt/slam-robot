@@ -223,11 +223,11 @@ bool Slam::SetupProblem(int min_frame_to_solve,
   auto loss = new ceres::CauchyLoss(.01);
   //auto loss = new ceres::HuberLoss(0.02);
   for (auto& point : map->points) {
-    if (point.observations_.size() < 2)
+    if (point->observations_.size() < 2)
       continue;
-    for (const auto& o : point.observations_) {
-      CHECK_GE(o.frame_ref, 0);
-      CHECK_LT(o.frame_ref, map->frames.size());
+    for (const auto& o : point->observations_) {
+      CHECK_GE(o.frame_idx, 0);
+      CHECK_LT(o.frame_idx, map->frames.size());
 
       // Each residual block takes a point and a camera as input and outputs a 2
       // dimensional residual. Internally, the cost function stores the observed
@@ -240,13 +240,13 @@ bool Slam::SetupProblem(int min_frame_to_solve,
                                 loss /* squared loss */,
                                 &(map->camera.data[0]),
                                 &(map->camera.data[1]),
-                                map->frames[o.frame_ref].rotation(),
-                                map->frames[o.frame_ref].translation(),
-                                point.location());
-      Pose* f = &(map->frames[o.frame_ref]);
+                                map->frames[o.frame_idx].rotation(),
+                                map->frames[o.frame_idx].translation(),
+                                point->location());
+      Pose* f = &(map->frames[o.frame_idx]);
       frame_set_.insert(f);
     }
-    point_set_.insert(&point);
+    point_set_.insert(point.get());
   }
 
   if (frame_set_.size() < 2)
@@ -315,10 +315,10 @@ void Slam::Run(LocalMap* map,
 void Slam::ReprojectMap(LocalMap* map) {
   // Update observation error for each point.
   for (auto& point : map->points) {
-    point.location_.normalize();
-    for (auto& o : point.observations_) {
+    point->location_.normalize();
+    for (auto& o : point->observations_) {
       o.error = o.pt;
-      const Pose& frame = map->frames[o.frame_ref];
+      const Pose& frame = map->frames[o.frame_idx];
 
       ReprojectionError project(o.pt(0), o.pt(1));
 
@@ -326,7 +326,7 @@ void Slam::ReprojectMap(LocalMap* map) {
               map->camera.instrinsics(),
               frame.rotation(),
               frame.translation(),
-              point.location(),
+              point->location(),
               o.error.data());
     }
   }

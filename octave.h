@@ -133,6 +133,6 @@ class Octave {
 
 };
 
-typedef std::shared_ptr<Octave> View;
+typedef std::shared_ptr<Octave> OctaveRef;
 
 #endif /* OCTAVE_H_ */

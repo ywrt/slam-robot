@@ -4,7 +4,7 @@
  *  Created on: Jan 27, 2013
  *      Author: michael
  */
-
+#include <map>
 #include <math.h>
 #include <iostream>
 #include <eigen3/Eigen/Eigen>
@@ -17,30 +17,39 @@
 
 #include "stereo_tracking.h"
 
-struct StereoFrame {
-  pair<Octave> images;
-  pair<CornerList, CornerList> corners;
-  vector<TrackedPoint*> points;
+struct FrameCorners {
+  Octave image;
+  CornerList corners;
+};
+
+struct FramePair {
+  FrameCorners left;
+  FrameCorners right;
+  map<int, int> lr_matches; // left corners that match right corners.
+  map<int, int> ll_matches; // left corners that match the previous left frame.
+  map<int, int> rr_matches; // right corners that match the previous right frame.
+  map<int, TrackedPoint*> points;  // map from left corners to tracked points.
 };
 
 StereoTracking::StereoTracking() { }
 
 namespace {
 // Search in the region 'r' in 'img2', searching for the corner that best
-// matches the corners 'c' in img1.
+// matches the corners 'c' in img1. Only return corners where the disparity
+// is less than 'max_disparity'.
 int FindBestCorner(
-    const Octave& img1,
-    const Octave& img2,
-    const CornerList& corners,
+    const FrameCorners& img1,
+    const FrameCorners& img2,
     const Pos& c,
-    const Region& r) {
+    const Region& r,
+    const int max_disparity) {
 
-  Patch patch(img1.GetPatch(img1.space().convert(c)));
+  Patch patch(img1.image.GetPatch(img1.image.space().convert(c)));
   int best_score = 1<<30;
   int best_idx = -1;
-  for (int idx = corners.find(r); idx >= 0; idx = corners.next(r, idx)) {
-    const Pos& p(corners.corners[idx]);
-    int score = img2.Score(patch, p); // int score; fpos = o1.SearchPosition(o1.space().convert(p), patch, 3, &score);
+  for (int idx = img2.corners.find(r); idx >= 0; idx = img2.corners.next(r, idx)) {
+    const Pos& p(img2.corners.corners[idx].pos);
+    int score = img2.image.Score(patch, p); // int score; fpos = o1.SearchPosition(o1.space().convert(p), patch, 3, &score);
     if (score < best_score) {
       best_score = score;
       best_idx = idx;
@@ -48,88 +57,90 @@ int FindBestCorner(
   }
   if (best_idx < 0)
     return -1;
-  if (best_score > 4000)
+  if (best_score > max_disparity)
     return -1;
   //printf("score %d\n"  , best_score);
   return best_idx;
 }
 
-// Given a stereo pair of images, find points that occur in both images.
-pair<CornerList, CornerList> FindMatchingPoints(const Octave& left, const Octave& right) {
-  auto left_corners = FindCorners(left, 20, 15);
+// Given a pair of images, find points that occur in both images.
+// Returns a list of pair of indexes of matching corners.
+map<int, int> FindMatchingPoints(const FrameCorners& left, const FrameCorners& right, int max_disparity) {
   auto right_corners = FindCorners(right, 18, 15);
 
-  pair<CornerList, CornerList> result;
+  map<int, int> result;
   for (auto&c : corners.corners) {
-    int idx = FindBestCorner(left, right, right_corners, c, Region(Pos(0, c.y - 2), Pos(c.x + 2, c.y + 2));
-    if (idx < 0)
+    if (c.score < 20) continue;  // Only use somewhat better corners as a starting point for improved repeatability.
+    int right_idx = FindBestCorner(left, right, c, Region(Pos(0, c.y - 2), Pos(c.x + 2, c.y + 2), max_disparity);
+    if (right_idx < 0)
       continue;
-    const Pos& p = right_corners.corners[idx];
+    const Pos& p = right_corners.corners[right_idx];
 
     // Now search in reverse to check we ended up where we started.
-    int rev_idx = FindBestCorner(right, left, left_corners, p, Region(Pos(c.x - 2, c.y - 2), Pos(1e6, c.y + 2));
-    if (rev_idx < 0)
+    int left_idx = FindBestCorner(right, left, p, Region(Pos(c.x - 2, c.y - 2), Pos(1e6, c.y + 2), max_disparity);
+    if (left_idx < 0)
       continue;
 
-    const Pos& c1 = left_corners.corners[rev_idx];
+    const Pos& c1 = left_corners.corners[left_idx];
     if (c1 != c) {
       // Failed to find the same point we started with.
       continue;
     }
-
-    result.first.corners.push_back(c);
-    result.second.corners.push_back(p);
+    result[left_idx] = right_idx;
   }
 }
 
 }  // namespace
 
+
+// Process a stereo pair of frames.
+// We match left to right, left to the previous left, and right to the previous right.
 int SteroTracking::ProcessFrames(int width, int height, const uint8_t* left, const uint8_t* right, LocalMap* map) {
-  int frame_num = map->AddFrame();
+  const int max_disparity = 4000;
 
-  frames.push_front({});
-  auto& now = frames[0];
-  now.images.first.FillOctaves(left, width, height);
-  now.images.second.FillOctaves(right, width, height);
-  now.corners = FindMatchingPoints(now.images.first, now.images.second);
-  now.points.resize(now.corners.size());
+  int left_num = map->AddFrame();
+  int right_num = map->AddFrame();
 
-  // Find corners that occur in previous frames and either update or
-  // add them to the LocalMap.
-  for (int i = 0; i < now.corners.first.size(); ++i) {
-    const auto& left_c = now.corners.first.corners[i];
-    const auto& right_c = now.corners.second.corners[i];
-    for (int f = 1 ; f < kSearchFrames; ++f) {
-      int idx1 = FindBestCorner(now.images.first, frames[f].images.first, frames[f].corners.first, left_c, Region(left_c - 30, left_c + 30));
-      if (idx1 < 0) continue;  // Didn't match any corner.
-      int idx2 = FindBestCorner(now.images.second, frames[f].images.second, frames[f].corners.second, right_c, Region(right_c - 30, right_c + 30));
-      if (idx1 != idx2) continue;  // Didn't match the same point on left and right.
-
-      // Now what? We know that corner 'idx1' in 'frames[f]' matches corner 'i' in 'now'.
-      // If it's not previously been tracked, then start tracking it. Else add it as
-      // an observation to the tracked point.
-      TrackedPoint* pt = NULL;
-      if (frames[i].points[idx1]) {
-        pt = frames[i].points[idx1];
-      } else {
-        // Try and find it via descriptor matching.
-        pt = FindTrackedPointByDesc(now.images.left, left_c);
-        if (!pt) {
-          pt = new TrackedPoint;
-          pt->AddObservation(
-              frame_num - f,
-              frames[f].corners.first.corners[idx1],
-              frames[f].corners.second.corners[idx1]);
-          AddTrackedPointByDesc(pt, frames[f].images.left, frames[f].corners.first.corners[idx1]);
-        }
-      }
-      now.points[i] = pt;
-      pt->AddObservation(frame_num, left_c, right_c);
-      
-      break; // Found a matching point, all done.
-    }
+  std::unique_ptr<FramePair> fp = new FramePair;
+  fp->left.image = Octave(width, height, left);
+  fp->right.image = Octave(width, height, right);
+  fp->left.corners = FindCorners(fp->left.image, 18, 15);  // min score 18, non-max-supression radius 15.
+  fp->right.corners = FindCorners(fp->right.image, 18, 15);
+  // Find left-right matches.
+  fp->lr_matches = FindMatchingPoints(fp->left, fp->right, max_disparity);
+  // Find matching points between the left and the previous left image.
+  if (frames.size()) {
+    fp->ll_matches = FindMatchingPoints(fp->left, frames.head()->left, max_disparity);
+    fp->rr_matches = FindMatchingPoints(fp->right, frames.head()->right, max_disparity);
   }
 
+  // Find left-right-corners that occured in previous frames and either update or
+  // add them to the LocalMap.
+  for (const auto& match : fp->lr_matches) {
+    bool ll_match = fp->ll_matches.count(match.first);
+    bool rr_match = fp->rr_matches.count(match.second);
+    TrackedPoint* pt = NULL;
+    if (ll_match && rr_match) {
+      // Full match. LR, LL and RR. Retrieve the tracked point.
+      pt = frames[0]->points[fp->ll_matches[match.first]];
+    // TODO: Handle non-full matches. (i.e. LR+LL, or LR+RR only).
+    } else if (!ll_match && !rr_match) {
+      // TODO: Try and find it via descriptor matching.
+      // pt = FindTrackedPointByDesc(now.images.left, left_c);
+
+      // New point. Start tracking it.
+      if (!pt) {
+        pt = map->AddPoint();
+      }
+    }
+    const auto& left_pos = fp->left.corners[match.first].pos;
+    const auto& right_pos = fp->right.corners[match.second].pos;
+
+    pt->AddObservation(Observation(left_pos.x, left_pos.y, frame_num, 0));
+    pt->AddObservation(Observation(right_pos.x, right_pos.y, frame_num, 1));
+  }
+
+  frames.push_front(fp);
   if (frames.size() > kSearchFrames) {
     frames.pop_back();
   }

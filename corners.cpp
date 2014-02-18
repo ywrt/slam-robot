@@ -92,18 +92,20 @@ CornerList FindCorners(const Octave& img, int threshold, int range) {
   for (const auto& c : corners) {
     if (c.score < 0)
       continue;
-    result.corners.push_back(Pos(c.x, c.y));
+    result.corners.push_back({Pos(c.x, c.y), c.score});
   }
   return result;
 }
 
-CornerList::CornerList(const std::vector<Pos>& c) : corners(c) {
+CornerList::CornerList(const std::vector<Pos>& c) {
+  for (const auto& p : c)
+    corners.push_back({p, 0});
   std::sort(corners.begin(),
       corners.end(),
-      [](const Pos& a, const Pos& b) -> bool {
-        if (a.y != b.y)
-          return a.y < b.y;
-        return a.x < b.x;
+      [](const ScoredCorner& a, const ScoredCorner& b) -> bool {
+        if (a.pos.y != b.pos.y)
+          return a.pos.y < b.pos.y;
+        return a.pos.x < b.pos.x;
       });
 }
 
@@ -121,7 +123,7 @@ int CornerList::next(const Region& r, int index) const {
 
   while (1) {
     // If index is in the region, we're done.
-    const Pos& p = corners[index];
+    const Pos& p = corners[index].pos;
     if (r.contains(p))
       return index;
 
@@ -139,7 +141,7 @@ int CornerList::next(const Region& r, int index) const {
 
     while (1) {
       int mid = (left + right) / 2;
-      const Pos& p = corners[mid];
+      const Pos& p = corners[mid].pos;
       if (p < corner) {
         left = mid + 1;
       } else {
@@ -148,7 +150,7 @@ int CornerList::next(const Region& r, int index) const {
       if (left >= right)
         break;
     }
-    if (left > right || corners[left] > r.ur)
+    if (left > right || corners[left].pos > r.ur)
       return -1;
 
     index = left;

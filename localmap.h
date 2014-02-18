@@ -5,14 +5,15 @@
  *      Author: michael
  */
 
+// TODO: Use graph center (aka Jordan Center) to place the reference frame for the tracked points.
+//
+
 #ifndef LOCALMAP_H_
 #define LOCALMAP_H_
-
+#include <memory>
 #include <vector>
 
 #include <eigen3/Eigen/Eigen>
-
-#include "descriptor.h"
 
 using namespace Eigen;
 using namespace std;
@@ -48,11 +49,14 @@ struct Camera {
 };
 
 struct Observation {
-  Observation() : frame_ref(-1) {}
+  Observation() : frame_idx(-1) {}
+  Observation(int x, int y, int frame_index, int camera_index) :
+      pt({x, y}), frame_idx(frame_index), camera_idx(camera_index) {}
 
   Vector2d pt;
   Vector2d error;
-  int frame_ref;
+  int frame_idx;
+  int camera_idx;
 };
 
 // A fully tracked point.
@@ -73,7 +77,7 @@ struct TrackedPoint {
     int last_frame() const {
       if (observations_.size() < 1)
         return -1;
-      return observations_.back().frame_ref;
+      return observations_.back().frame_idx;
     }
 
     // The most recent observation.
@@ -92,18 +96,17 @@ struct TrackedPoint {
 // Description of the known world.
 struct LocalMap {
   // Add a new (empty) frame to the map.
-  // Initializes the new frame position by linear interpolation
-  // from the previous 2 frames.
   // Returns the frame number.
   int AddFrame();
 
   // Discards errored observations.
   void Clean();
 
+  TrackedPoint* AddPoint();
+
   Camera camera;
   vector<Pose> frames;
-  vector<int> keyframes;
-  vector<TrackedPoint> points;
+  vector<std::unique_ptr<TrackedPoint>> points;
 };
 
 #endif /* LOCALMAP_H_ */

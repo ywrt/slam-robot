@@ -81,9 +81,9 @@ int Tracking::UpdateCorners(LocalMap* map, int frame_num) {
   int searched = 0;
   int updated = 0;
   for (auto& point : map->points) {
-    if (point.bad_)
+    if (point->bad_)
       continue;
-    int s = frame_num - point.last_frame();
+    int s = frame_num - point->last_frame();
     if (s > kSearchFrames)
       continue;
 
@@ -91,12 +91,12 @@ int Tracking::UpdateCorners(LocalMap* map, int frame_num) {
 
     ++searched;
 
-    CHECK_LT(frame_num - point.last_frame() - 1, kSearchFrames);
-    CHECK_GE(frame_num - point.last_frame() - 1, 0);
-    const Matrix3d& homog = homography[frame_num - point.last_frame() - 1];
+    CHECK_LT(frame_num - point->last_frame() - 1, kSearchFrames);
+    CHECK_GE(frame_num - point->last_frame() - 1, 0);
+    const Matrix3d& homog = homography[frame_num - point->last_frame() - 1];
 
-    Vector2d location = ComputePoint(point.last_point(), homog);
-    Vector2d lp = point.last_point();
+    Vector2d location = ComputePoint(point->last_point(), homog);
+    Vector2d lp = point->last_point();
     location = lp;
 
     FPos fp = curr->UpdatePosition(
@@ -107,9 +107,9 @@ int Tracking::UpdateCorners(LocalMap* map, int frame_num) {
       continue;
 
     Observation o;
-    o.frame_ref = frame_num;
+    o.frame_idx = frame_num;
     o.pt = fposToVector(fp);
-    point.observations_.push_back(o);
+    point->observations_.push_back(o);
     ++updated;
   }
 #if 0
@@ -132,11 +132,11 @@ void Tracking::FindNewCorners(LocalMap* map, int frame_num) {
   int valid_points = 0;
   int sectors_marked = 0;
   for (auto& point : map->points) {
-    if ((frame_num - point.last_frame()) > 1)
+    if ((frame_num - point->last_frame()) > 1)
       continue;
-    if (point.bad_)
+    if (point->bad_)
       continue;
-    FPos fp(vectorToFPos(point.last_point()));
+    FPos fp(vectorToFPos(point->last_point()));
 
     int count = grid.groupmark(grid_size * fp.x, grid_size * fp.y);
     sectors_marked += count;
@@ -166,13 +166,12 @@ void Tracking::FindNewCorners(LocalMap* map, int frame_num) {
     if (score < 5000)
       continue;
 
-    map->points.push_back(TrackedPoint());
+    auto point = map->AddPoint();
 
-    TrackedPoint& point = map->points.back();
     Observation o;
-    o.frame_ref = frame_num;
+    o.frame_idx = frame_num;
     o.pt = fposToVector(fp);
-    point.observations_.push_back(o);
+    point->observations_.push_back(o);
     found++;
     grid.groupmark(p.x, p.y);
   }
