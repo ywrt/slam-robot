@@ -1,9 +1,10 @@
 #ifndef FASTER_H_
 #define FASTER_H_
-#include <vector>
 #include <stdint.h>
 
-namespace faster {
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 struct Corner {
   int x;
@@ -11,11 +12,12 @@ struct Corner {
   int score;
 };
 
-void faster_score(uint8_t* bytes, int width, int height, int stride, int b,
-    std::vector<Corner>* corners);
+void faster_score(uint8_t* bytes, int width, int height, int stride, int b, struct Corner* corners, int num_corners);
 
-std::vector<Corner> faster_detect(uint8_t* bytes, int width, int height, int stride, int b);
+int faster_detect(uint8_t* bytes, int width, int height, int stride, int b, struct Corner** corners);
 
-}  // namespace
+#ifdef __cplusplus
+}  // extern
+#endif
 
 #endif

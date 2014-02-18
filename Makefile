@@ -24,6 +24,8 @@ test: $(DEPS) $(TESTS:=_run)
 
 $(TARGET): $(OBJS) main.o
 
+stereo: $(OBJS) stereo.o
+
 %_test: %_test.o $(OBJS)
 	$(CXX) -o $@ $^ $(LDLIBS) -lgtest
 
@@ -34,10 +36,10 @@ $(DEPS): $(wildcard *.cpp) Makefile
 	$(CXX) $(CXXFLAGS) -MM $(wildcard *.cpp) > $(DEPS)
 
 # Can't compile with optimization turned on. too large!
-faster.o: faster.h faster.cpp
-	g++ -std=c++0x -c faster.cpp
+faster.o: faster.h faster.c
+	gcc -std=c99 -O -c faster.c
 
-faster1.o: faster.h faster1.cpp
-	g++ -std=c++0x -c faster1.cpp
+faster1.o: faster.h faster1.c
+	gcc -std=c99 -O -c faster1.c
 
 -include $(DEPS)

@@ -9,18 +9,25 @@
 using namespace std;
 
 // Return scored corners. Corners are sorted by Y.
-vector<faster::Corner> FindFasterCorners(const Octave& img, int k) {
+vector<ScoredCorner> FindFasterCorners(const Octave& img, int k) {
   // Find corners, in order.
-  vector<faster::Corner> corners = faster::faster_detect((uint8_t*)img.data(), img.space().width, img.space().height, img.space().stride, k);
-  faster::faster_score((uint8_t*)img.data(), img.space().width, img.space().height, img.space().stride, k, &corners);
+  Corner* corners;
+  int num_corners = faster_detect((uint8_t*)img.data(), img.space().width, img.space().height, img.space().stride, k, &corners);
+  faster_score((uint8_t*)img.data(), img.space().width, img.space().height, img.space().stride, k, corners, num_corners);
 
-  return corners;
+  vector<ScoredCorner> result;
+  for (int i = 0; i < num_corners; ++i)
+    result.push_back({{corners[i].x, corners[i].y}, corners[i].score});
+  
+  free(corners);
+
+  return result;
 }
 
 // Supress non-max corners. Done by setting score to -1 for every
 // supressed corner.
-void SupressNonMax(int k, vector<faster::Corner>* cptr) {
-  vector<faster::Corner>& corners = *cptr;
+void SupressNonMax(int k, vector<ScoredCorner>* cptr) {
+  vector<ScoredCorner>& corners = *cptr;
   // Non-max supression over a k radius.
 
   // Search for corners that are not less than another other corner in 'k' distance.
@@ -37,17 +44,17 @@ void SupressNonMax(int k, vector<faster::Corner>* cptr) {
       //printf("[%d,%d]\n", c.x, c.y);
       // Adjust segment of corners to search. Corners are already
       // sorted by Y.
-      while ((corners[left].y + k) < c.y && left < corners.size())
+      while ((corners[left].pos.y + k) < c.pos.y && left < corners.size())
         ++left;
-      while ((corners[right].y - k) <= c.y && right < corners.size())
+      while ((corners[right].pos.y - k) <= c.pos.y && right < corners.size())
         ++right;
 
       for (size_t i = left; i < right; ++i) {
         if (corners[i].score < 0)
           continue;
-        if ((corners[i].x + k) < c.x)
+        if ((corners[i].pos.x + k) < c.pos.x)
           continue;
-        if ((corners[i].x - k) > c.x)
+        if ((corners[i].pos.x - k) > c.pos.x)
           continue;
         if (corners[i].score > c.score)
           goto supressed;
@@ -56,13 +63,13 @@ void SupressNonMax(int k, vector<faster::Corner>* cptr) {
       // This corner is not supressed.
       // Supress all the covered corners.
       for (size_t i = left ; i < right; ++i) {
-        if ((corners[i].x + k) < c.x)
+        if ((corners[i].pos.x + k) < c.pos.x)
           continue;
-        if ((corners[i].x - k) > c.x)
+        if ((corners[i].pos.x - k) > c.pos.x)
           continue;
         // Don't supress the max corner itself.
         // TODO: if (corners[i].score < c.score) { ... }
-        if (corners[i].x == c.x && corners[i].y == c.y)
+        if (corners[i].pos.x == c.pos.x && corners[i].pos.y == c.pos.y)
           continue;
 
         //printf("c (%d,%d), corners[i] (%d,%d), k %d, left %d, right %d\n", c.x, c.y, corners[i].x, corners[i].y, k, left, right);
@@ -80,11 +87,6 @@ void SupressNonMax(int k, vector<faster::Corner>* cptr) {
 
 CornerList FindCorners(const Octave& img, int threshold, int range) {
   auto corners = FindFasterCorners(img, threshold);
-  for (const auto& c : corners) {
-    if (c.score < 0)
-      continue;
-    //printf("%d,%d => %d\n", c.x, c.y, c.score);
-  }
 
   SupressNonMax(range, &corners);
 
@@ -92,7 +94,7 @@ CornerList FindCorners(const Octave& img, int threshold, int range) {
   for (const auto& c : corners) {
     if (c.score < 0)
       continue;
-    result.corners.push_back({Pos(c.x, c.y), c.score});
+    result.corners.push_back(c);
   }
   return result;
 }
