@@ -19,9 +19,9 @@ extern const uint8_t guass_weights[];
 
 struct Patch {
   static const int kPatchRadius = 4;
-  static const int kPatchSize = (kPatchRadius) * (kPatchRadius*2);
+  static const int kPatchSize = (kPatchRadius*2) * (kPatchRadius*2);
 
-  uint8_t data[64];
+  uint8_t data[kPatchSize];
 };
 
 class Octave {
@@ -29,12 +29,14 @@ class Octave {
   Octave() : space_(0,0) {}
   Octave(const uint8_t* image, int width, int height);
   Octave(const uint8_t* image, int width, int height, int stride);
+  Octave(Octave&& other);
+  Octave& operator=(Octave&& other);
   ~Octave();
 
   int width() const { return space_.width; }
   int height() const { return space_.height; }
   const Space& space() const { return space_; }
-  const uint8_t* data() const { return image_; }
+  const uint8_t* data() const { return image_.get(); }
 
   // Fill in this octave from the previous one.
   // aka: Shrink the image from the previous octave to be half the width
@@ -129,7 +131,7 @@ class Octave {
 
  private:
   Space space_;
-  uint8_t* image_;
+  std::unique_ptr<uint8_t[]> image_;
 
 };
 

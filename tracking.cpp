@@ -21,8 +21,8 @@
 
 
 Tracking::Tracking() :
-    curr(new OctaveSet),
-    prev {NULL, } {
+curr(new OctaveSet),
+prev {NULL, } {
   for (int i = 0; i < kSearchFrames; ++i) {
     prev[i] = new OctaveSet;
   }
@@ -113,16 +113,16 @@ int Tracking::UpdateCorners(LocalMap* map, int frame_num) {
     ++updated;
   }
 #if 0
-  for (int i = 0; i < 4; ++i) {
-    printf("Octave %d\n", i);
-    cout << "fwd\n" << curr->fwd_hist[i].str();
-    cout << "rev\n" << curr->rev_hist[i].str();
-  }
+for (int i = 0; i < 4; ++i) {
+  printf("Octave %d\n", i);
+  cout << "fwd\n" << curr->fwd_hist[i].str();
+  cout << "rev\n" << curr->rev_hist[i].str();
+}
 #endif
 
 
-  printf("Searched %d, updated %d\n", searched, updated);
-  return 0;
+printf("Searched %d, updated %d\n", searched, updated);
+return 0;
 }
 
 void Tracking::FindNewCorners(LocalMap* map, int frame_num) {
@@ -166,7 +166,7 @@ void Tracking::FindNewCorners(LocalMap* map, int frame_num) {
     if (score < 5000)
       continue;
 
-    auto point = map->AddPoint();
+    TrackedPoint* point = map->AddPoint();
 
     Observation o;
     o.frame_idx = frame_num;

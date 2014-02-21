@@ -15,31 +15,23 @@
 
 
 OctaveSet::OctaveSet() :
-fwd_hist { Histogram(20, 1000),
-  Histogram(20, 1000),
-  Histogram(20, 1000),
-  Histogram(20, 1000),
-},
-rev_hist { Histogram(20, 1000),
-  Histogram(20, 1000),
-  Histogram(20, 1000),
-  Histogram(20, 1000),
-},
-octave0_(new Octave()),
-octave1_(new Octave()),
-octave2_(new Octave()),
-octave3_(new Octave()) {
-}
-
-OctaveSet::~OctaveSet() {
-  delete octave3_;
-  delete octave2_;
-  delete octave1_;
-  delete octave0_;
-}
+    fwd_hist { Histogram(20, 1000),
+      Histogram(20, 1000),
+      Histogram(20, 1000),
+      Histogram(20, 1000),
+    },
+    rev_hist { Histogram(20, 1000),
+      Histogram(20, 1000),
+      Histogram(20, 1000),
+      Histogram(20, 1000),
+    } { }
+OctaveSet::~OctaveSet() { }
 
 void OctaveSet::FillOctaves(uint8_t* data, int width, int height) {
-  *octave0_ = Octave(data, width, height); // 2ms
+  octave0_.reset(new Octave(data, width, height)); // 2ms
+  octave1_.reset(new Octave);
+  octave2_.reset(new Octave);
+  octave3_.reset(new Octave);
   octave1_->fill(*octave0_);  // 6 ms
   octave2_->fill(*octave1_);  // 1 ms
   octave3_->fill(*octave2_);  // 1 ms
@@ -81,8 +73,6 @@ FPos OctaveSet::UpdatePosition(const OctaveSet& pimage,
   Patch patch;
   FPos fp(pos);
   if (!pimage.octave3_->contains(ppos, Patch::kPatchRadius)) {
-    Pos p = octave3_->pos(ppos);
-    LOG("Out of image fail %d,%d.\n", p.x, p.y);
     return FPos::invalid();
   }
   int suma;
@@ -103,8 +93,6 @@ FPos OctaveSet::UpdatePosition(const OctaveSet& pimage,
   int sumb;
   FPos rfp(ppos);  // Reverse position.
   if (!octave3_->contains(fp, Patch::kPatchRadius)) {
-    Pos p = octave3_->pos(fp);
-    LOG("Out of image fail %d,%d.\n", p.x, p.y);
     return FPos::invalid();
   }
   patch = octave3_->GetPatch(fp);
@@ -127,10 +115,12 @@ FPos OctaveSet::UpdatePosition(const OctaveSet& pimage,
   // TODO: Extract magic number.
   if ((delta.x + delta.y) > 1) {
     // Update failed.
+#if 0
     LOG("UpdatePos failed: (%3d,%3d) -> (%3d,%3d) : (%-3d,%-3d) [%f,%f]\n",
         fwd.x, fwd.y, rev.x, rev.y,
         (fwd.x - rev.x), (fwd.y - rev.y),
         rfp.x, rfp.y);
+#endif
 
     return FPos::invalid();
   }
@@ -138,7 +128,6 @@ FPos OctaveSet::UpdatePosition(const OctaveSet& pimage,
   // Values computed from histograms.
   // TODO: Extract magic number.
   if (sumb > 18000 || suma > 18000) {
-    LOG("suma %6d, sumb %6d\n", suma, sumb);
     return FPos::invalid();
   }
 

@@ -10,7 +10,7 @@
 
 #include <stdint.h>
 
-#define LOG(fmt...) printf(fmt)
+//#define LOG(fmt...) printf(fmt)
 
 uint32_t get_usec();
 

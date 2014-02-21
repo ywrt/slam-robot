@@ -1,13 +1,13 @@
 
 CC=g++
 CFLAGS=-g
-OPT=-O3 -ffast-math -msse4.2 
+#OPT=-O3 -ffast-math -msse4.2 
 CXXFLAGS = -fmessage-length=0 \
               -std=c++0x -g -Wall $(OPT)
 LDFLAGS= -Lceres-solver-1.8.0/BUILD/lib
 CPPFLAGS= -Iceres-solver-1.8.0/include -I./eigen-eigen-ffa86ffb5570
 OBJS = octave.o octaveset.o grid.o slam.o localmap.o planner.o \
-    tracking.o histogram.o descriptor.o corners.o faster.o faster1.o
+    tracking.o histogram.o descriptor.o corners.o faster.o faster1.o stereo_tracking.o imgtypes.o
 
 TESTS = octave octaveset region grid histogram descriptor corners
 

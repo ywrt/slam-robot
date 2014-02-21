@@ -25,7 +25,7 @@ int LocalMap::AddFrame() {
     frames.push_back(f);
   } else if (frames.size() > 0) {
     frames.push_back(frames.back());
-    frames.back().translation()[0] += 0.01;
+    frames.back().translation()[0] += 0.15;
   } else {
     frames.push_back(Pose());
   }
@@ -34,7 +34,8 @@ int LocalMap::AddFrame() {
 }
 
 TrackedPoint* LocalMap::AddPoint() {
-  points.push_back({});
+  std::unique_ptr<TrackedPoint> p(new TrackedPoint);
+  points.push_back(std::move(p));
   return points.back().get();
 }
 
@@ -51,8 +52,8 @@ void LocalMap::Clean() {
      double err = o.error.norm() * 1000;
      err_hist.add(err);
 
-     if (err < 5)
-       continue;
+     //if (err < 5)
+     //  continue;
      printf("frame %3d : (matches %d) [%7.3f %7.3f] (%7.2f,%7.2f) -> %.2f\n",
          o.frame_idx,
          point->num_observations(),

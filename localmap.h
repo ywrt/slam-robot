@@ -50,8 +50,8 @@ struct Camera {
 
 struct Observation {
   Observation() : frame_idx(-1) {}
-  Observation(int x, int y, int frame_index, int camera_index) :
-      pt({x, y}), frame_idx(frame_index), camera_idx(camera_index) {}
+  Observation(Vector2d p, int frame_index, int camera_index) :
+      pt(p), frame_idx(frame_index), camera_idx(camera_index) {}
 
   Vector2d pt;
   Vector2d error;
@@ -87,6 +87,8 @@ struct TrackedPoint {
 
     // The number of observations of this point.
     int num_observations() const { return observations_.size(); }
+
+    void AddObservation(const Observation& obs) { observations_.push_back(obs); }
 
     Vector4d location_;  // Homogeneous location in world.
     vector<Observation> observations_;

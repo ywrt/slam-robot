@@ -179,8 +179,9 @@ void Slam::SetupConstantBlocks(const int frame,
                          int min_frame_to_solve,
                          bool solve_camera,
                          LocalMap* map) {
-  problem_->SetParameterBlockConstant(map->frames[0].translation());
-  problem_->SetParameterBlockConstant(map->frames[0].rotation());
+ // problem_->SetParameterBlockConstant(map->frames[0].translation());
+ // problem_->SetParameterBlockConstant(map->frames[0].rotation());
+
   if (map->camera.data[0] < 0.3)
     map->camera.data[0] = 1;
 
@@ -207,7 +208,7 @@ void Slam::SetupConstantBlocks(const int frame,
       if (point->last_frame() >= min_frame_to_solve)
         continue;
 
-      problem_->SetParameterBlockConstant(point->location());
+   //   problem_->SetParameterBlockConstant(point->location());
     }
   }
 }
@@ -266,7 +267,7 @@ void Slam::Run(LocalMap* map,
     return;
 
   const int frame = map->frames.size() - 1;
-
+#if 0
   ceres::ParameterBlockOrdering* ordering =
       new ceres::ParameterBlockOrdering;
   for (auto p : point_set_) {
@@ -278,8 +279,8 @@ void Slam::Run(LocalMap* map,
   }
   ordering->AddElementToGroup(&(map->camera.data[0]), 3);
   ordering->AddElementToGroup(&(map->camera.data[1]), 4);
-
   options.linear_solver_ordering = ordering;
+#endif
 
   SetupParameterization();
   SetupConstantBlocks(frame, min_frame_to_solve,

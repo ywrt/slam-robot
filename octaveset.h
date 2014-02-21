@@ -7,7 +7,10 @@
 
 #ifndef OCTAVESET_H_
 #define OCTAVESET_H_
+
+#include <memory>
 #include <stdint.h>
+
 #include "imgtypes.h"
 #include "region.h"
 #include "histogram.h"
@@ -45,10 +48,10 @@ class OctaveSet {
   mutable Histogram rev_hist[4];
 
  private:
-  Octave* octave0_;
-  Octave* octave1_;
-  Octave* octave2_;
-  Octave* octave3_;
+  std::unique_ptr<Octave> octave0_;
+  std::unique_ptr<Octave> octave1_;
+  std::unique_ptr<Octave> octave2_;
+  std::unique_ptr<Octave> octave3_;
 
   float pose_[16];
 };

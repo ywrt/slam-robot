@@ -1,6 +1,8 @@
 #ifndef IMGTYPES_H
 #define IMGTYPES_H
 
+#include <ostream>
+
 struct FPos {
   float x;
   float y;
@@ -147,5 +149,8 @@ inline  bool operator == (const Space& a, const Space& b) {
 inline  bool operator != (const Space& a, const Space& b) {
   return !(a == b);
 }
+
+std::ostream& operator<<(std::ostream& stream, const Pos& pos);
+std::ostream& operator<<(std::ostream& stream, const FPos& pos);
 
 #endif

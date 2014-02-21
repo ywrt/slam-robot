@@ -10,6 +10,7 @@
 #ifdef NEON
 #include <arm_neon.h>
 #endif
+#include <glog/logging.h>
 
 #include "util.h"
 #include "octave.h"
@@ -17,19 +18,31 @@
 
 Octave::Octave(const uint8_t* data, int width, int height) :
     space_(width, height), image_(new uint8_t[space_.size()]) {
-  memcpy(image_, data, space_.size());
+  memcpy(image_.get(), data, space_.size());
 }
 Octave::Octave(const uint8_t* data, int width, int height, int stride) :
     space_(width, height, stride), image_(new uint8_t[space_.size()]) {
-  memcpy(image_, data, space_.size());
+  memcpy(image_.get(), data, space_.size());
+}
+Octave::Octave(Octave&& other) : space_(other.space_), image_(std::move(other.image_)) {
+  other.space_ = Space(0, 0);
+}
+Octave& Octave::operator=(Octave&& other) {
+  if (this == &other) return *this;
+  space_ = other.space_;
+  image_ = std::move(other.image_);
+  other.space_ = Space(0, 0);
+  return *this;
 }
 
-Octave::~Octave() { delete[] image_; image_ = NULL; }
+Octave::~Octave() {}
 
 Octave Octave::clone() const {
-  return Octave(image_, space_.width, space_.height, space_.stride);
+  return Octave(image_.get(), space_.width, space_.height, space_.stride);
 }
 
+const int Patch::kPatchRadius;
+const int Patch::kPatchSize;
 const uint8_t guass_weights[] = {
     4,   6,   9,  11,  11,   9,   6,   4,
     6,  11,  15,  18,  18,  15,  11,   6,
@@ -46,9 +59,8 @@ const uint8_t guass_weights[] = {
 // and half the height, and save the result into this octave.
 void Octave::fill(const Octave& prev) {
   if (image_ == NULL || space_.width != prev.space_.width / 2 || space_.height != prev.space_.height/2) {
-    if (image_) delete[] image_;
     space_ = Space(prev.space_.width / 2, prev.space_.height / 2);
-    image_ = new uint8_t[space_.size()];
+    image_.reset(new uint8_t[space_.size()]);
   }
 
   for (int y = 0; y < space_.height;++y) {
@@ -65,6 +77,7 @@ void Octave::fill(const Octave& prev) {
 #ifdef NEON
 // Fixed size 8x8 scoring. uses neon intrinsics for some sembalance of speed.
 inline int Octave::Score_neon(uint8_t* patch, Pos pos) const {
+
   uint8_t* ptr = pixel_ptr(pos - int(Patch::kPatchRadius));
 
   const uint8_t* guass_ptr = guass_weights;
@@ -218,8 +231,8 @@ Patch Octave::GetPatch(const FPos& fpos) const {
   uint8_t* patch_ptr = &patch.data[0];
 
   uint8_t* ptr = pixel_ptr(p - Patch::kPatchRadius);
-  for (int ry = 0; ry < Patch::kPatchSize; ++ry) {
-    for (int rx = 0 ; rx < Patch::kPatchSize ; ++rx) {
+  for (int ry = 0; ry < Patch::kPatchRadius * 2; ++ry) {
+    for (int rx = 0 ; rx < Patch::kPatchRadius * 2; ++rx) {
       *patch_ptr++ = ptr[rx];
     }
     ptr += space_.stride;

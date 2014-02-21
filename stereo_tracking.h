@@ -14,12 +14,17 @@
 
 class LocalMap;
 class OctaveSet;
-class Framepair;
+struct FramePair;
+class CornerList;
 
 struct  StereoTracking {
   StereoTracking();
+  ~StereoTracking();
 
-  int ProcessFrame(int width, int height, const uint8_t* left, const uint8_t* right, LocalMap* map);
+  int ProcessFrames(int width, int height, const uint8_t* left, const uint8_t* right, LocalMap* map);
+
+  const CornerList& left_corners();
+  const CornerList& right_corners();
 
   static const int kSearchFrames = 2;
   std::deque<std::unique_ptr<FramePair>> frames;
