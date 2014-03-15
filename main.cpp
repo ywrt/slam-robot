@@ -50,10 +50,10 @@ using namespace Eigen;
 void DumpMap(LocalMap* map) {
   for (auto& f : map->frames) {
     printf("(%f,%f,%f,%f) -> (%f, %f, %f)\n",
-           f.rotation()[0], f.rotation()[1],
-           f.rotation()[2], f.rotation()[3],
-           f.translation()[0], f.translation()[1],
-           f.translation()[2]);
+           f->pose.rotation()[0], f->pose.rotation()[1],
+           f->pose.rotation()[2], f->pose.rotation()[3],
+           f->pose.translation()[0], f->pose.translation()[1],
+           f->pose.translation()[2]);
   }
 #if 0
   for (auto& p : map->points) {
@@ -62,10 +62,11 @@ void DumpMap(LocalMap* map) {
   }
 #endif
 
-  printf("focal %f r1 %f r2 %f\n",
-         map->camera.data[0],
-         map->camera.data[1],
-         map->camera.data[2]);
+  printf("scale [%f, %f] r1 %f r2 %f\n",
+         map->cameras[0]->xyscale()[0],
+         map->cameras[0]->xyscale()[1],
+         map->cameras[0]->distortion()[0],
+         map->cameras[0]->distortion()[1]);
 }
 
 
@@ -108,6 +109,8 @@ int main(int argc, char*argv[]) {
   int frame = -1;
 
   LocalMap map;
+  map.AddCamera();
+  
   Tracking tracking;
 
   Slam slam;

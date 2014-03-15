@@ -134,8 +134,8 @@ int StereoTracking::ProcessFrames(int width, int height, const uint8_t* left, co
   LOG(INFO) << "ProcessFrames";
   const int max_disparity = 12000;
 
-  int left_num = map->AddFrame();
-  int right_num = map->AddFrame();
+  int left_num = map->AddFrame(map->cameras[0].get())->frame_num;
+  int right_num = map->AddFrame(map->cameras[1].get())->frame_num;
 
   std::unique_ptr<FramePair> fp(new FramePair);
   fp->left.image = Octave(left, width, height);
@@ -167,7 +167,9 @@ int StereoTracking::ProcessFrames(int width, int height, const uint8_t* left, co
 
       // New point. Start tracking it.
       if (!pt) {
-        pt = map->AddPoint();
+        auto left_vec = fposToVector(fp->left.image.space().convert(match.first));
+        Vector4d location = map->frame(left_num)->Unproject(left_vec, 5);
+        pt = map->AddPoint(location);
       }
     }
     if (!pt) continue;
@@ -175,8 +177,8 @@ int StereoTracking::ProcessFrames(int width, int height, const uint8_t* left, co
     auto left_vec = fposToVector(fp->left.image.space().convert(match.first));
     auto right_vec = fposToVector(fp->right.image.space().convert(match.second));
     
-    pt->AddObservation(Observation(left_vec, left_num, 0));
-    pt->AddObservation(Observation(right_vec, right_num, 1));
+    pt->AddObservation(Observation(left_vec, left_num));
+    pt->AddObservation(Observation(right_vec, right_num));
   }
 
   frames.push_front(std::move(fp));

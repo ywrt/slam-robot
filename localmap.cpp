@@ -8,33 +8,74 @@
 #include <glog/logging.h>
 #include "histogram.h"
 
+#include "project.h"
+
 #include "localmap.h"
 
-int LocalMap::AddFrame() {
-  int frame_num = frames.size();
-
-  if (frames.size() > 5) {
-    auto s = frames.size();
-    auto& f1 = frames[s - 2];
-    auto& f2 = frames[s - 4];
-    Vector3d motion = f1.translation_ - f2.translation_;
-    if (motion.norm() > 1)
-      motion /= motion.norm();
-    Pose f = f1;
-    f.translation_ += motion;
-    frames.push_back(f);
-  } else if (frames.size() > 0) {
-    frames.push_back(frames.back());
-    frames.back().translation()[0] += 0.15;
-  } else {
-    frames.push_back(Pose());
-  }
-
-  return frame_num;
+// Project a point in worldspace into Frame pixel space.
+bool Frame::Project(const Vector4d& point, Vector2d* result) const {
+  ProjectPoint project;
+  return project(
+          camera->xyscale(),
+          camera->distortion(),
+          pose.rotation(),
+          pose.translation(),
+          point.data(),
+          result->data());
 }
 
-TrackedPoint* LocalMap::AddPoint() {
+Vector4d Frame::Unproject(const Vector2d& point, double distance) const {
+  Vector4d result;
+  result(0) = point(0) / camera->xyscale()[0] * distance;
+  result(1) = point(1) / camera->xyscale()[1] * distance;
+  result(2) = distance;
+  result(3) = 1;
+
+  auto r = pose.rotation_.inverse() * (result.topLeftCorner(3,1) - pose.translation_);
+  result.topLeftCorner(3,1) = r;
+  result.normalize();
+  return result;
+}
+
+
+Frame* LocalMap::AddFrame(Camera* cam) {
+  std::unique_ptr<Frame> p(new Frame(frames.size(), cam));
+  frames.push_back(std::move(p));
+  return frames.back().get();
+}
+
+Camera* LocalMap::AddCamera() {
+  std::unique_ptr<Camera> p(new Camera);
+  cameras.push_back(std::move(p));
+  return cameras.back().get();
+}
+
+void LocalMap::EstimateMotion(const Frame* f2, const Frame* f1, Frame* curr) {
+  if (!f1 && !f2) {
+    curr->pose = Pose();
+    return;
+  }
+
+  if (!f2) {  // Only 1 previous frame.
+    curr->pose = f1->pose;
+    curr->pose.translation()[0] += 0.15;  // Assume a small movement in X.
+    return;
+  }
+
+  const auto& p2 = f2->pose;
+  const auto& p1 = f1->pose;
+
+  Vector3d motion = p1.translation_ - p2.translation_;
+  if (motion.norm() > 1)
+    motion /= motion.norm();
+
+  curr->pose = p1;
+  curr->pose.translation_ += motion;
+}
+
+TrackedPoint* LocalMap::AddPoint(const Vector4d& location) {
   std::unique_ptr<TrackedPoint> p(new TrackedPoint);
+  p->location_ = location;
   points.push_back(std::move(p));
   return points.back().get();
 }

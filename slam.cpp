@@ -12,6 +12,8 @@
 
 #include <map>
 
+#include "project.h"
+
 #include "slam.h"
 
 Slam::Slam() : iterations_(0), error_(0) {}
@@ -65,95 +67,51 @@ public:
 };
 
 // Parameterization of homogeneous coordinates in R^3.
-class HomogenousParameterization : public ceres::LocalParameterization {
- public:
-  virtual ~HomogenousParameterization() {}
+// An implementation of x + delta(x) that preserves the
+// homogenization.
+struct HomogenousPlus {
+  template<typename T>
+  bool operator()(const T* x, const T* delta, T* delta_plus) {
+    Map<const Matrix<T, 4, 1>> mx(x);
+    Map<const Matrix<T, 3, 1>> mdelta(delta);
+    Map<Matrix<T, 4, 1>> mdelta_plus(delta_plus);
 
-  virtual int GlobalSize() const { return 4; }
-  virtual int LocalSize() const { return 3; }
-  bool Plus(const double* x,
-           const double* delta,
-           double* x_plus_delta) const {
-    Map<const Vector4d> mx(x);
-    Map<const Vector3d> mdelta(delta);
-    Map<Vector4d> mx_plus_delta(x_plus_delta);
-
-    Vector4d sum = mx;
-    sum.topLeftCorner<3,1>() += mdelta;
-    mx_plus_delta = sum / sum.norm();
-    return true;
-  }
-  bool ComputeJacobian(
-      const double* x,
-      double* jacobian) const {
-    double ssq = x[0]*x[0] + x[1]*x[1] + x[2]*x[2] + x[3]*x[3];
-    double ssq32 = sqrt(ssq)*ssq;
-
-    jacobian[0]  = -x[0]*x[0]/ssq32 + 1/sqrt(ssq);
-    jacobian[3]  = -x[0]*x[1]/ssq32;
-    jacobian[6]  = -x[0]*x[2]/ssq32;
-    jacobian[9]  = -x[0]*x[3]/ssq32;
-
-    jacobian[1]  = -x[1]*x[0]/ssq32;
-    jacobian[4]  = -x[1]*x[1]/ssq32 + 1/sqrt(ssq);
-    jacobian[7]  = -x[1]*x[2]/ssq32;
-    jacobian[10] = -x[1]*x[3]/ssq32;
-
-    jacobian[2]  = -x[2]*x[0]/ssq32;
-    jacobian[5]  = -x[2]*x[1]/ssq32;
-    jacobian[8]  = -x[2]*x[2]/ssq32 + 1/sqrt(ssq);
-    jacobian[11] = -x[2]*x[3]/ssq32;
+    // TODO: work out why topLeftCorner<3, 1>() doesn't work.
+    mdelta_plus.topLeftCorner(3, 1) = mx.topLeftCorner(3, 1) * mx(3, 0);
+    mdelta_plus(3,0) = mx(3,0);
+    mdelta_plus.normalize();
+    
     return true;
   }
 };
 
 struct ReprojectionError {
-  ReprojectionError(double observed_x, double observed_y)
-  : observed_x(observed_x), observed_y(observed_y) {}
+  ReprojectionError(double observed_x, double observed_y) :
+      observed_x(observed_x), observed_y(observed_y) { }
 
   template <typename T>
-  bool operator()(const T* const scale,
-      const T* const intrinsics,
-      const T* const camera_rotation,
-      const T* const camera_translation,
-      const T* const point,
+  bool operator()(
+      const T* const xyscale,
+      const T* const distortion,
+
+      const T* const frame_rotation,  // eigen quarternion: [x,y,z,w]
+      const T* const frame_translation,  // [x,y,z]
+
+      const T* const point,  // homogenous coordinates. [x,y,z,w]
       T* residuals) const {
-    // camera[0,1,2] are the angle-axis rotation.
-#if 0
-    T p[3];
-    ceres::QuaternionRotatePoint(camera_rotation, point, p);
-#else
-    Map<const Quaternion<T> > q(camera_rotation);
-    Map<const Matrix<T, 4, 1> > mpoint(point);
 
-    Matrix<T, 3, 1> p;
-    p(0) = mpoint(0);
-    p(1) = mpoint(1);
-    p(2) = mpoint(2);
-    p = q * p;
-#endif
-    // camera[3,4,5] are the translation.
-    p[0] += camera_translation[0] * point[3];
-    p[1] += camera_translation[1] * point[3];
-    p[2] += camera_translation[2] * point[3];
-    // Compute the center of distortion.
-    T xp = p[0] / p[2];
-    T yp = p[1] / p[2];
-    // Apply second and fourth order radial distortion.
-    const T& l1 = intrinsics[0];
-    const T& l2 = intrinsics[1];
-    T r2 = xp*xp + yp*yp;
-    T distortion = T(1.0) + r2 * (l1 + l2 * r2);
+    T projected[2];
 
-    // Compute final projected point position.
-    const T& focal = scale[0];
-    T predicted_x = distortion * xp;
-    T predicted_y = focal * distortion * yp;
+    if (!project(xyscale, distortion, frame_rotation, frame_translation, point, projected))
+      return false;  // Point is behind camera.
+
     // The error is the difference between the predicted and observed position.
-    residuals[0] = predicted_x - T(observed_x);
-    residuals[1] = predicted_y - T(observed_y);
+    residuals[0] = projected[0] - T(observed_x);
+    residuals[1] = projected[1] - T(observed_y);
     return true;
   }
+
+  ProjectPoint project;
   double observed_x;
   double observed_y;
 };
@@ -162,13 +120,13 @@ struct ReprojectionError {
 void Slam::SetupParameterization() {
   ceres::LocalParameterization* quaternion_parameterization =
       new ceres::QuaternionParameterization;
-  for (auto frame : frame_set_) {
+  for (auto frame : pose_set_) {
     problem_->SetParameterization(frame->rotation(),
                                  quaternion_parameterization);
   }
 
 #if 0
-  auto homogenous = new HomogenousParameterization;
+  auto homogenous = new AutoDiffLocalParameterization<HomogenousPlus, 3, 3>;
   for (auto& pt : point_set) {
     problem_.SetParameterization(pt->location(), homogenous);
   }
@@ -177,32 +135,28 @@ void Slam::SetupParameterization() {
 
 void Slam::SetupConstantBlocks(const int frame,
                          int min_frame_to_solve,
-                         bool solve_camera,
+                         bool solve_cameras,
                          LocalMap* map) {
  // problem_->SetParameterBlockConstant(map->frames[0].translation());
  // problem_->SetParameterBlockConstant(map->frames[0].rotation());
 
-  if (map->camera.data[0] < 0.3)
-    map->camera.data[0] = 1;
-
-  if (map->camera.data[0] > 3)
-    map->camera.data[0] = 1;
-
-  if (!solve_camera)
-    problem_->SetParameterBlockConstant(&(map->camera.data[0]));
-
-  if (!solve_camera)
-    problem_->SetParameterBlockConstant(&(map->camera.data[1]));
+  if (!solve_cameras) {
+    for (auto& camera : map->cameras) {
+      problem_->SetParameterBlockConstant(camera->xyscale());
+      problem_->SetParameterBlockConstant(camera->distortion());
+    }
+  }
 
   for (int i = 1; i < (int) ((map->frames.size())) && i < min_frame_to_solve;
       ++i) {
-    auto f = &(map->frames[i]);
-    if (!frame_set_.count(f))
+    auto f = &(map->frames[i]->pose);
+    if (!pose_set_.count(f))
       continue;
 
     problem_->SetParameterBlockConstant(f->translation());
     problem_->SetParameterBlockConstant(f->rotation());
   }
+
   if (min_frame_to_solve >= 0) {
     for (const auto& point : point_set_) {
       if (point->last_frame() >= min_frame_to_solve)
@@ -218,7 +172,7 @@ bool Slam::SetupProblem(int min_frame_to_solve,
   // Create residuals for each observation in the bundle adjustment problem. The
   // parameters for cameras and points are added automatically.
   problem_.reset(new ceres::Problem);
-  frame_set_.clear();
+  pose_set_.clear();
   point_set_.clear();
 
   auto loss = new ceres::CauchyLoss(.01);
@@ -234,23 +188,29 @@ bool Slam::SetupProblem(int min_frame_to_solve,
       // dimensional residual. Internally, the cost function stores the observed
       // image location and compares the reprojection against the observation.
       ceres::CostFunction* cost_function =
-          new ceres::AutoDiffCostFunction<ReprojectionError, 2, 1, 2, 4, 3, 4>(
+          new ceres::AutoDiffCostFunction<ReprojectionError, 2, 2, 2, 4, 3, 4>(
               new ReprojectionError(o.pt(0), o.pt(1)));
 
+      const auto& frame = map->frames[o.frame_idx];
       problem_->AddResidualBlock(cost_function,
                                 loss /* squared loss */,
-                                &(map->camera.data[0]),
-                                &(map->camera.data[1]),
-                                map->frames[o.frame_idx].rotation(),
-                                map->frames[o.frame_idx].translation(),
-                                point->location());
-      Pose* f = &(map->frames[o.frame_idx]);
-      frame_set_.insert(f);
+                                frame->camera->xyscale(),
+                                frame->camera->distortion(),
+
+                                frame->pose.rotation(),
+                                frame->pose.translation(),
+
+                                point->location().data());
+
+      camera_set_.insert(frame->camera);
+
+      Pose* f = &(map->frames[o.frame_idx]->pose);
+      pose_set_.insert(f);
     }
     point_set_.insert(point.get());
   }
 
-  if (frame_set_.size() < 2)
+  if (pose_set_.size() < 2)
     return false;
 
   return true;
@@ -258,7 +218,7 @@ bool Slam::SetupProblem(int min_frame_to_solve,
 
 void Slam::Run(LocalMap* map,
                int min_frame_to_solve,
-               bool solve_camera) {
+               bool solve_cameras) {
   // Create residuals for each observation in the bundle adjustment problem. The
   // parameters for cameras and points are added automatically.
 
@@ -273,7 +233,7 @@ void Slam::Run(LocalMap* map,
   for (auto p : point_set_) {
     ordering->AddElementToGroup(p->location(), 0);
   }
-  for (auto frame : frame_set_) {
+  for (auto frame : pose_set_) {
     ordering->AddElementToGroup(frame->translation(), 1);
     ordering->AddElementToGroup(frame->rotation(), 2);
   }
@@ -284,7 +244,7 @@ void Slam::Run(LocalMap* map,
 
   SetupParameterization();
   SetupConstantBlocks(frame, min_frame_to_solve,
-                      solve_camera, map);
+                      solve_cameras, map);
 
   options.linear_solver_type = ceres::ITERATIVE_SCHUR;
   options.linear_solver_type = ceres::DENSE_SCHUR;
@@ -295,7 +255,7 @@ void Slam::Run(LocalMap* map,
   if (min_frame_to_solve < 0)
     options.max_num_iterations = 1500;
   options.function_tolerance = 1e-6;
-  if (solve_camera)
+  if (solve_cameras)
     options.function_tolerance = 1e-9;
   //  if (frames > 15) {
   //  options.use_nonmonotonic_steps = true;
@@ -319,15 +279,16 @@ void Slam::ReprojectMap(LocalMap* map) {
     point->location_.normalize();
     for (auto& o : point->observations_) {
       o.error = o.pt;
-      const Pose& frame = map->frames[o.frame_idx];
+      const auto& frame = map->frames[o.frame_idx];
 
       ReprojectionError project(o.pt(0), o.pt(1));
 
-      project(map->camera.scale(),
-              map->camera.instrinsics(),
-              frame.rotation(),
-              frame.translation(),
-              point->location(),
+      project(
+              frame->camera->xyscale(),
+              frame->camera->distortion(),
+              frame->pose.rotation(),
+              frame->pose.translation(),
+              point->location().data(),
               o.error.data());
     }
   }

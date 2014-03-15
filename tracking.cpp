@@ -5,32 +5,28 @@
  *      Author: michael
  */
 
-#include <math.h>
-#include <iostream>
 #include <eigen3/Eigen/Eigen>
 #include <glog/logging.h>
+#include <iostream>
+#include <math.h>
+#include <opencv2/opencv.hpp>
 
+#include "grid.h"
+#include "histogram.h"
+#include "imagedata.h"
 #include "localmap.h"
 #include "octaveset.h"
 #include "slam.h"
-#include "grid.h"
-#include "histogram.h"
 
 #include "tracking.h"
 
 
-
-Tracking::Tracking() :
-curr(new OctaveSet),
-prev {NULL, } {
-  for (int i = 0; i < kSearchFrames; ++i) {
-    prev[i] = new OctaveSet;
-  }
-}
+Tracking::Tracking() {}
+Tracking::~Tracking() {}
 
 namespace {
 
-void ComputeHomography(const Pose& f1, const Pose& f2, Matrix3d* homog) {
+Matrix3d ComputeHomography(const Pose& f1, const Pose& f2) {
   Matrix3d rotate;
   rotate = f2.rotation_ * f1.rotation_.inverse();
 
@@ -46,7 +42,7 @@ void ComputeHomography(const Pose& f1, const Pose& f2, Matrix3d* homog) {
   // the focal length.
   rotate.block<3,1>(0,2) -= translate;
 
-  *homog = AngleAxisd(-M_PI/2, Vector3d::UnitZ()) *
+  return AngleAxisd(-M_PI/2, Vector3d::UnitZ()) *
       rotate *
       AngleAxisd(M_PI/2, Vector3d::UnitZ());
 }
@@ -65,86 +61,60 @@ Vector2d ComputePoint(
 
 }  // namespace
 
-int Tracking::UpdateCorners(LocalMap* map, int frame_num) {
-  Matrix3d homography[3];
+int Tracking::UpdateCorners(LocalMap* map, const ImageData& curr, int frame_num, vector<Vector2d>* tracked) {
+  Frame* frame = map->frame(frame_num);
 
-  for (int i = 0; i < kSearchFrames; ++i) {
-    if (i >= frame_num)
-      continue;
-    const Pose& f2 = map->frames[frame_num];
-    const Pose& f1 = map->frames[frame_num - i - 1];
-    ComputeHomography(f1, f2, &homography[i]);
-
-    cout << homography[i] << endl;
-  }
-
-  int searched = 0;
-  int updated = 0;
+  int searched = 0, updated = 0;
   for (auto& point : map->points) {
-    if (point->bad_)
-      continue;
-    int s = frame_num - point->last_frame();
-    if (s > kSearchFrames)
-      continue;
+    auto obs = point->last_obs();
+    auto iter = data_.find(obs.frame_idx);
+    if (iter == data_.end())
+      continue;  // Don't have any patch data.
+    
+    Vector2d p;
+    if (!frame->Project(point->location(), &p))
+      continue;  // Behind the camera.
+    if (p.lpNorm<Infinity>() > 1)
+      continue;  // out of frame.
 
-    CHECK_GT(3, s);
 
+    auto ref = iter->second.get();  // ImageData*
+
+    auto homography = ComputeHomography(map->frame(obs.frame_idx)->pose, frame->pose);
+
+    // TODO: Extract patch from 'ref'. patch source shape is
+    // computed using homography.
+
+    auto pt = obs.pt;
     ++searched;
-
-    CHECK_LT(frame_num - point->last_frame() - 1, kSearchFrames);
-    CHECK_GE(frame_num - point->last_frame() - 1, 0);
-    const Matrix3d& homog = homography[frame_num - point->last_frame() - 1];
-
-    Vector2d location = ComputePoint(point->last_point(), homog);
-    Vector2d lp = point->last_point();
-    location = lp;
-
-    FPos fp = curr->UpdatePosition(
-        *prev[s - 1],
-        vectorToFPos(location),
-        vectorToFPos(lp));
-    if (fp.isInvalid())
+    if (!ref->UpdateCorner(curr, homography, 5000, &pt))
       continue;
-
-    Observation o;
-    o.frame_idx = frame_num;
-    o.pt = fposToVector(fp);
-    point->observations_.push_back(o);
+  
+    point->AddObservation({p, frame_num});
+    tracked->push_back(p);
     ++updated;
   }
-#if 0
-for (int i = 0; i < 4; ++i) {
-  printf("Octave %d\n", i);
-  cout << "fwd\n" << curr->fwd_hist[i].str();
-  cout << "rev\n" << curr->rev_hist[i].str();
-}
-#endif
 
-
-printf("Searched %d, updated %d\n", searched, updated);
-return 0;
+  printf("Searched %d, updated %d\n", searched, updated);
+  return 0;
 }
 
-void Tracking::FindNewCorners(LocalMap* map, int frame_num) {
+void Tracking::FindNewCorners(const Mat& image, const vector<Vector2d>& tracked) {
   // Mask out areas where we already have corners.
   const int grid_size = 24;
   Grid grid(grid_size, grid_size);
+
   int valid_points = 0;
   int sectors_marked = 0;
-  for (auto& point : map->points) {
-    if ((frame_num - point->last_frame()) > 1)
-      continue;
-    if (point->bad_)
-      continue;
-    FPos fp(vectorToFPos(point->last_point()));
-
-    int count = grid.groupmark(grid_size * fp.x, grid_size * fp.y);
+  for (const auto& point : tracked) {
+    int x = 0.5 + (point(0) + 1) * 0.5 * grid_size;
+    int y = 0.5 + (point(1) + 1) * 0.5 * grid_size;
+    int count = grid.groupmark(x, y);
     sectors_marked += count;
     ++valid_points;
   }
 
   printf("Valid: %d, sectors %d\n", valid_points, sectors_marked);
-
 
   int found = 0;
   FPos fgrid_size(1. / grid_size, 1. / grid_size);
@@ -166,11 +136,13 @@ void Tracking::FindNewCorners(LocalMap* map, int frame_num) {
     if (score < 5000)
       continue;
 
-    TrackedPoint* point = map->AddPoint();
+    Vector2d frame_point = fposToVector(fp);
+    Vector4d location = map->frame(frame_num)->Unproject(frame_point, 5);
+    TrackedPoint* point = map->AddPoint(location);
 
     Observation o;
     o.frame_idx = frame_num;
-    o.pt = fposToVector(fp);
+    o.pt = frame_point;
     point->observations_.push_back(o);
     found++;
     grid.groupmark(p.x, p.y);
@@ -178,28 +150,23 @@ void Tracking::FindNewCorners(LocalMap* map, int frame_num) {
   printf("Search found %d\n", found);
 
   cout << score_hist.str() << "\n";
-  // LOG("Now tracking %d corners\n", cset.access().num_valid());
+  // LOG("Neliminatingow tracking %d corners\n", cset.access().num_valid());
 }
 
 
-int Tracking::ProcessFrame(uint8_t* data, int width, int height, LocalMap* map) {
-  int frame_num = map->AddFrame();
-  curr->FillOctaves(data, width, height);
+int Tracking::ProcessFrame(const cv::Mat& image, LocalMap* map) {
+  Frame* frame = map->AddFrame(map->cameras[0].get());
+
+  std::unique_ptr<ImageData> curr(new ImageData(image));
   // fill_pose(cimage->pose());
 
-  UpdateCorners(map, frame_num);
-  FindNewCorners(map, frame_num);
+  vector<Vector2d> tracked;
+  UpdateCorners(map, *(curr.get()), frame->frame_num, &tracked);
+  FindNewCorners(map, frame->frame_num);
 
-  flip();
-
-  return frame_num;
-}
-
-void Tracking::flip() {
-  auto t = prev[kSearchFrames - 1];
-  for (int i = 1; i < kSearchFrames; ++i) {
-    prev[i] = prev[i - 1];
+  data_[frame->frame_num] = std::move(curr);
+  if (data_.size() > 4) {
+    data_.erase(data_.begin());  // erase the lowest frame_num.
   }
-  prev[0] = curr;
-  curr = t;
+  return frame->frame_num;
 }

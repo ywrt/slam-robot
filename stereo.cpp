@@ -141,6 +141,9 @@ int main(int argc, char*argv[]) {
   int frame = -1;
 
   LocalMap map;
+  map.AddCamera();
+  map.AddCamera();
+
   StereoTracking tracking;
 
   Slam slam;

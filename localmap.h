@@ -18,6 +18,8 @@
 using namespace Eigen;
 using namespace std;
 
+class TrackedPoint;
+
 // Position and orientation of a frame camera.
 // measures in world coordinates.
 struct Pose {
@@ -36,27 +38,47 @@ struct Pose {
 
 // Camera intrinsics.
 struct Camera {
-  Camera() : data {0.5625, -0.01, 0} {}
+  Camera() : scale_{1, 0.5626}, distortion_ {-0.01, 0} {}
 
-  double* scale() { return &data[0]; }
-  const double* scale() const { return &data[0]; }
-  double* instrinsics() { return &data[1]; }
-  const double* instrinsics() const { return &data[1]; }
+  double* xyscale() { return &scale_[0]; }
+  const double* xyscale() const { return &scale_[0]; }
+
+  double* distortion() { return &distortion_[0]; }
+  const double* distortion() const { return &distortion_[0]; }
 
   // 0 == focal length.
   // 1, 2 == radial distortion for r^2 and r^4
-  double data[3];
+  double focal_;  // focal length.
+  double scale_[2];  // x, y scale.
+  double distortion_[2];  //  r^2 distortion, r^4 distortion.
 };
 
+// A frame taken by a specific camera in a specific pose.
+struct Frame {
+  Frame(int num, Camera* cam) : frame_num(num), camera(cam) { }
+
+  // Project a tracked point into frame pixel space.
+  bool Project(const Vector4d& point, Vector2d* result) const;
+
+  // Convert a point in frame pixel space and a guess at distance into
+  // a homogenous point. 
+  Vector4d Unproject(const Vector2d& point, double distance) const;
+
+  int frame_num;
+  Pose pose;
+  Camera* camera;
+};
+
+
+// An observation of a tracked point from a specific frame.
 struct Observation {
   Observation() : frame_idx(-1) {}
-  Observation(Vector2d p, int frame_index, int camera_index) :
-      pt(p), frame_idx(frame_index), camera_idx(camera_index) {}
+  Observation(Vector2d p, int frame_index) :
+      pt(p), frame_idx(frame_index) { }
 
-  Vector2d pt;
-  Vector2d error;
+  Vector2d pt;  // In [-1, 1] x [-1, 1]
+  Vector2d error;  // For debugging: filled in by slam.
   int frame_idx;
-  int camera_idx;
 };
 
 // A fully tracked point.
@@ -70,8 +92,10 @@ struct TrackedPoint {
 
     // Pointer to an array of 4 doubles being [X, Y, Z, W],
     // the homogeous coordinates in world space.
-    const double* location() const { return location_.data(); }
-    double* location() { return location_.data(); }
+    const Vector4d& location() const { return location_; }
+    Vector4d& location() { return location_; }
+ 
+    const Observation& last_obs() const { return observations_.back(); }   
 
     // The last frame in which this point was observed.
     int last_frame() const {
@@ -99,15 +123,24 @@ struct TrackedPoint {
 struct LocalMap {
   // Add a new (empty) frame to the map.
   // Returns the frame number.
-  int AddFrame();
+  Frame* AddFrame(Camera* cam);
+
+  // Add a new camera to the map
+  Camera* AddCamera();
+
+  Frame* frame(int frame_idx) { return frames[frame_idx].get(); }
+  const Frame* frame(int frame_idx) const { return frames[frame_idx].get(); }
+
+  // Do simple motion estimation from the previous two frames.
+  void EstimateMotion(const Frame* f2, const Frame* f1, Frame* curr);
 
   // Discards errored observations.
   void Clean();
 
-  TrackedPoint* AddPoint();
+  TrackedPoint* AddPoint(const Vector4d& point);
 
-  Camera camera;
-  vector<Pose> frames;
+  vector<std::unique_ptr<Camera>> cameras;
+  vector<std::unique_ptr<Frame>> frames;
   vector<std::unique_ptr<TrackedPoint>> points;
 };
 
