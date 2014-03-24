@@ -60,8 +60,8 @@ struct Frame {
   // Project a tracked point into frame pixel space.
   bool Project(const Vector4d& point, Vector2d* result) const;
 
-  // Convert a point in frame pixel space and a guess at distance into
-  // a homogenous point. 
+  // Convert a point in frame pixel space [-1,1]x[-1,1] and a
+  // guess at distance into a homogenous point. 
   Vector4d Unproject(const Vector2d& point, double distance) const;
 
   int frame_num;

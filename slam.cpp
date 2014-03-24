@@ -254,7 +254,7 @@ void Slam::Run(LocalMap* map,
   options.max_num_iterations = 150;
   if (min_frame_to_solve < 0)
     options.max_num_iterations = 1500;
-  options.function_tolerance = 1e-6;
+  options.function_tolerance = 1e-8;
   if (solve_cameras)
     options.function_tolerance = 1e-9;
   //  if (frames > 15) {

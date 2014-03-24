@@ -20,17 +20,25 @@ namespace cv {
 class Mat;
 }
 
+class Feature {
+  Vector2d pt;
+  int id;
+}
+
 struct  Tracking {
   Tracking();
   ~Tracking();
 
   int UpdateCorners(LocalMap* map, const ImageData& fdata, int frame_idx, vector<Vector2d>* tracked);
   void FindNewCorners(LocalMap* map, int frame_idx);
-  int ProcessFrame(const cv::Mat& image, LocalMap* map);
+  const std::vector<Feature>& ProcessFrame(const cv::Mat& image);
 
-  static const int kSearchFrames = 2;
+  std::vector<Feature> features1_;
+  std::vector<Feature> features2_;
 
-  std::map<int, std::unique_ptr<ImageData>> data_;
+  std::unique_ptr<ImageData> image1_;
+  std::unique_ptr<ImageData> image2_;
+  int last_id;
 };
 
 #endif /* TRACKING_H_ */

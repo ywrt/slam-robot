@@ -7,12 +7,12 @@ CXXFLAGS = -fmessage-length=0 \
 LDFLAGS= -Lceres-solver-1.8.0/BUILD/lib
 CPPFLAGS= -Iceres-solver-1.8.0/include -I./eigen-eigen-ffa86ffb5570
 OBJS = octave.o octaveset.o grid.o slam.o localmap.o planner.o \
-    tracking.o histogram.o descriptor.o corners.o faster.o faster1.o \
-    stereo_tracking.o imgtypes.o imagedata.o
+    histogram.o descriptor.o corners.o faster.o faster1.o \
+    stereo_tracking.o imgtypes.o matcher.o
 
 TESTS = octave octaveset region grid histogram descriptor corners
 
-LDLIBS = -lceres -lopencv_highgui -lopencv_core -lopencv_features2d \
+LDLIBS = -lceres -lopencv_calib3d -lopencv_highgui -lopencv_core -lopencv_features2d \
        -lopencv_flann -lopencv_imgproc -lglog -lgomp -lpthread \
        -lprotobuf -lblas -llapack -lcholmod -lm
 

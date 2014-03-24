@@ -24,7 +24,7 @@
 
 #include "localmap.h"
 #include "slam.h"
-#include "stereo_tracking.h"
+#include "matcher.h"
 #include "corners.h"
 
 
@@ -49,10 +49,10 @@ using namespace Eigen;
 void DumpMap(LocalMap* map) {
   for (auto& f : map->frames) {
     printf("(%f,%f,%f,%f) -> (%f, %f, %f)\n",
-           f.rotation()[0], f.rotation()[1],
-           f.rotation()[2], f.rotation()[3],
-           f.translation()[0], f.translation()[1],
-           f.translation()[2]);
+           f->pose.rotation()[0], f->pose.rotation()[1],
+           f->pose.rotation()[2], f->pose.rotation()[3],
+           f->pose.translation()[0], f->pose.translation()[1],
+           f->pose.translation()[2]);
   }
 #if 0
   for (auto& p : map->points) {
@@ -61,10 +61,6 @@ void DumpMap(LocalMap* map) {
   }
 #endif
 
-  printf("focal %f r1 %f r2 %f\n",
-         map->camera.data[0],
-         map->camera.data[1],
-         map->camera.data[2]);
 }
 
 
@@ -125,6 +121,7 @@ class Eye {
 
 
 int main(int argc, char*argv[]) {
+  google::InitGoogleLogging(argv[0]);
   if (argc < 2) {
     fprintf(stderr, "Usage: slam left.avi right.avi\n");
     exit(1);
@@ -144,7 +141,7 @@ int main(int argc, char*argv[]) {
   map.AddCamera();
   map.AddCamera();
 
-  StereoTracking tracking;
+  Matcher tracking;
 
   Slam slam;
   while (1) {
@@ -155,26 +152,17 @@ int main(int argc, char*argv[]) {
     left.proc();
     right.proc();
 
-    int frame_num = tracking.ProcessFrames(left.grey_.cols,
-                                          left.grey_.rows,
-                                          (uint8_t*)left.grey_.data,
-                                          (uint8_t*)right.grey_.data,
-                                          &map);
-    CHECK_EQ(frame_num, frame);
-
+    
+    tracking.Track(left.grey_, 0, &map);
+    tracking.Track(right.grey_, 1, &map);
 
     //UpdateMap(&map, frame, normed_points, descriptors);
 
-    // Mark known corners onto images.
-    for (const auto& c : tracking.left_corners().corners) {
-      DrawCross(&left.frame_, c.pos, 2, Scalar(255, 0, 0));
-    }
-    for (const auto& c : tracking.right_corners().corners) {
-      DrawCross(&right.frame_, c.pos, 2, Scalar(255, 0, 0));
-    }
+    Mat blend;
+    addWeighted(left.frame_, 0.5, right.frame_, 0.5, 0, blend);
 
     // Draw observation history ontot left frame.
-    Mat& out = left.frame_;
+    Mat& out = blend;
     for (const auto& point : map.points) {
       if (point->last_frame() == frame - 1) {
         DrawCross(&out, point->last_point(), 2, Scalar(255,0,0));
@@ -194,23 +182,24 @@ int main(int argc, char*argv[]) {
       DrawCross(&out, point->last_point(), 5, Scalar(0,0,255));
     }
 
-    cv::imshow("Left", left.frame_);
+    cv::imshow("Left", blend);
     cv::imshow("Right", right.frame_);
 
     int mod = 1;
 
-    slam.Run(&map, frame - 2, false);
+    slam.Run(&map, -1, false);
     slam.ReprojectMap(&map);
     map.Clean();
 
-    if ((frame % mod) == 0) {
+    if (0) {
       slam.Run(&map, -1, false);
       slam.ReprojectMap(&map);
       map.Clean();
 
       //DumpMap(&map);
-      cv::waitKey(0);
     }
+
+    cv::waitKey(0);
     if (frame >= 100)
       break;
     //cv::waitKey(0);

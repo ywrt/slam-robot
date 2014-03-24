@@ -95,13 +95,17 @@ void LocalMap::Clean() {
 
      //if (err < 5)
      //  continue;
-     printf("frame %3d : (matches %d) [%7.3f %7.3f] (%7.2f,%7.2f) -> %.2f\n",
+     printf("frame %3d : (matches %d) [%7.3f %7.3f] (%7.2f,%7.2f) -> %.2f [%7.3f, %7.3f, %7.3f]\n",
          o.frame_idx,
          point->num_observations(),
          o.pt(0), o.pt(1),
          o.error(0) * 1000, o.error(1) * 1000,
-         err);
-     ++poor_matches;
+         err,
+         point->location()[0] / point->location()[3],
+         point->location()[1] / point->location()[3],
+         point->location()[2] / point->location()[3]
+        );
+     //++poor_matches;
    }
    if (poor_matches && point->last_frame() == curr_frame) {
      point->bad_ = true;

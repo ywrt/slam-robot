@@ -21,7 +21,7 @@
 #include "tracking.h"
 
 
-Tracking::Tracking() {}
+Tracking::Tracking() : max_id(0) {}
 Tracking::~Tracking() {}
 
 namespace {
