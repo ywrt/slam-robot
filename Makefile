@@ -7,8 +7,10 @@ CXXFLAGS = -fmessage-length=0 \
 LDFLAGS= -Lceres-solver-1.8.0/BUILD/lib
 CPPFLAGS= -Iceres-solver-1.8.0/include -I./eigen-eigen-ffa86ffb5570
 OBJS = octave.o octaveset.o grid.o slam.o localmap.o planner.o \
-    histogram.o descriptor.o corners.o faster.o faster1.o \
-    stereo_tracking.o imgtypes.o matcher.o
+    histogram.o \
+    imgtypes.o matcher.o
+
+#faster.o faster1.o \
 
 TESTS = octave octaveset region grid histogram descriptor corners
 
@@ -24,8 +26,6 @@ all: $(DEPS) $(TARGET)
 test: $(DEPS) $(TESTS:=_run)
 
 $(TARGET): $(OBJS) main.o
-
-stereo: $(OBJS) stereo.o
 
 %_test: %_test.o $(OBJS)
 	$(CXX) -o $@ $^ $(LDFLAGS) $(LDLIBS) -lgtest
