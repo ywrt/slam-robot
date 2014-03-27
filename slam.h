@@ -8,6 +8,7 @@
 #ifndef SLAM_H_
 #define SLAM_H_
 
+#include <functional>
 #include <memory>
 #include <set>
 
@@ -27,12 +28,13 @@ class Slam {
   virtual ~Slam();
 
   void Run(LocalMap* map,
-           int min_frame_to_solve,
-           bool solve_camera);
+           bool solve_camera,
+           std::function<bool (int frame_idx)> solve_frame_p
+           );
 
   // TODO: This belong in LocalMap which means the projection
   // should be lifted out.
-  void ReprojectMap(LocalMap* map);
+  double ReprojectMap(LocalMap* map);
 
   // Project a point into a frame.
   void Project(const Frame* frame, const TrackedPoint* point) const;
@@ -42,16 +44,19 @@ class Slam {
 
  private:
   unique_ptr<ceres::Problem> problem_;
-  std::set<Pose*> pose_set_;
+
+  std::set<Frame*> frame_set_;
   std::set<TrackedPoint*> point_set_;
   std::set<Camera*> camera_set_;
 
   void SetupParameterization();
-  void SetupConstantBlocks(const int frame,
-                           int min_frame_to_solve,
-                           bool solve_camera,
-                           LocalMap* map);
-  bool SetupProblem(int min_frame_to_solve, LocalMap* map);
+  void SetupConstantBlocks(
+      LocalMap* map,
+      bool solve_cameras,
+      std::function<bool (int frame_idx)> solve_frame_p);
+  bool SetupProblem(
+      LocalMap* map,
+      std::function<bool (int frame_idx)> solve_frame_p);
 
   int iterations_;
   double error_;

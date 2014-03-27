@@ -87,7 +87,7 @@ struct Observation {
 struct TrackedPoint {
   TrackedPoint() :
     location_ { 0, 0, 0, 1},
-    bad_(false)
+    bad_(0)
     { }
 
     // Pointer to an array of 4 doubles being [X, Y, Z, W],
@@ -116,7 +116,8 @@ struct TrackedPoint {
 
     Vector4d location_;  // Homogeneous location in world.
     vector<Observation> observations_;
-    bool bad_;
+    int bad_;
+    int id_;
 };
 
 // Description of the known world.
@@ -135,9 +136,15 @@ struct LocalMap {
   void EstimateMotion(const Frame* f2, const Frame* f1, Frame* curr);
 
   // Discards errored observations.
-  void Clean();
+  bool Clean();
 
-  TrackedPoint* AddPoint(const Vector4d& point);
+  // Normalize back to constant scale.
+  void Normalize();
+
+  // Show map stats on stdout
+  void Stats();
+
+  TrackedPoint* AddPoint(int id, const Vector4d& point);
 
   vector<std::unique_ptr<Camera>> cameras;
   vector<std::unique_ptr<Frame>> frames;

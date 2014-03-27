@@ -18,13 +18,7 @@ class Matcher {
   bool Track(const cv::Mat& img, int camera, LocalMap* map);
 
  private:
-  cv::Ptr<cv::FeatureDetector> detector_;
-  cv::Ptr<cv::DescriptorExtractor> extractor_;
-  cv::Ptr<cv::DescriptorMatcher> matcher_;
-
-  std::unique_ptr<cv::Mat> descriptors_;
-
-  std::vector<Data> data_;
+  std::unique_ptr<Data> data_;
 };
 
 

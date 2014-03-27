@@ -21,7 +21,6 @@ struct ProjectPoint {
     // Compute rotated translated point in [x*w, y*w, z*w] space.
     Eigen::Matrix<T, 3, 1> p = q * mpoint + translate * point[3];
 
-
     // Don't project points that are effectively behind the camera lens.
     if (p[2] < 0.001)
       return false;

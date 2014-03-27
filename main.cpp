@@ -91,6 +91,13 @@ void DrawLine(cv::Mat* out,
   line(*out, a, b, color, 1, 8);
 }
 
+void DrawText(cv::Mat* out, const string& str, const Vector2d& pos) {
+  Point2f a(
+      (pos(0) + 1)/2 * out->cols - 7,
+      (pos(1) + 1)/2 * out->rows - 7);
+  putText(*out, str, a, FONT_HERSHEY_PLAIN, 0.7, Scalar(0,0,255)); 
+}
+
 // Wrapper for VideoCapture. Can open cameras directly or
 // a video file.
 class Eye {
@@ -118,6 +125,102 @@ class Eye {
   Mat frame_, grey_;
 };
 
+class ImageSource {
+ protected:
+  ImageSource() {}
+ public:
+  virtual ~ImageSource() {}
+  virtual bool GetObservation(int camera, Mat* img) = 0;
+  virtual bool Init() = 0;
+};
+
+class ImageSourceMono : public ImageSource {
+ public:
+  ImageSourceMono(const char* filename) : filename_(filename), cam_(filename) {}
+  bool Init() {
+    if (!cam_.isOpened()) {
+      printf("Failed to open video file: %s\n", filename_);
+      return false;
+    }
+    return true;
+  }
+  virtual bool GetObservation(int, Mat* img) {
+    return cam_.read(*img);
+  }
+
+ private:
+  const char* filename_;
+  VideoCapture cam_;
+};
+
+class ImageSourceDuo : public ImageSource {
+ public:
+  ImageSourceDuo(const char* filename1, const char* filename2) :
+      filename1_(filename1), filename2_(filename2),
+      cam1_(filename1), cam2_(filename2) {}
+
+  bool Init() {
+    if (!cam1_.isOpened()) {
+      printf("Failed to open video file: %s\n", filename1_);
+      return false;
+    }
+    if (!cam2_.isOpened()) {
+      printf("Failed to open video file: %s\n", filename2_);
+      return false;
+    }
+    return true;
+  }
+
+  virtual bool GetObservation(int camera, Mat* img) {
+    if (camera == 0)
+      return cam1_.read(*img);
+    else
+      return cam2_.read(*img);
+  }
+
+ private:
+  const char* filename1_;
+  const char* filename2_;
+  VideoCapture cam1_;
+  VideoCapture cam2_;
+};
+
+
+void DrawDebug(const LocalMap& map, Mat* img) {
+  Mat& out = *img;
+  int frame = map.frames.size() - 1;
+
+  for (const auto& point : map.points) {
+    if (point->last_frame() == frame - 1) {
+      DrawCross(&out, point->last_point(), 2, Scalar(255,0,0));
+      continue;
+    }
+    if (abs(point->last_frame()) != frame)
+      continue;
+
+    if (point->num_observations() == 1) {
+      DrawCross(&out, point->last_point(), 2, Scalar(0,255,0));
+      continue;
+    }
+
+    int num = point->observations_.size();
+    if (point->observations_[num - 2].frame_idx == frame - 1) {
+      Scalar c(0,0,0);
+      if (point->observations_[num - 1].frame_idx == -frame) {
+        // Bad match.
+        c = Scalar(255,255,255);
+        cout << point->id_ << " is a bad point\n";
+      }
+      DrawLine(&out, point->observations_[num - 2].pt,
+          point->observations_[num - 1].pt, c);
+    }
+    DrawCross(&out, point->last_point(), 4, Scalar(0,0,255));
+
+    char buff[20];
+    sprintf(buff, "%d", point->id_);
+    DrawText(&out, buff, point->last_point());
+  }
+}
 
 int main(int argc, char*argv[]) {
   google::InitGoogleLogging(argv[0]);
@@ -131,11 +234,13 @@ int main(int argc, char*argv[]) {
   cv::moveWindow("Left", 1440, 0);
   cv::moveWindow("Right", 1440, 780);
 
-  Eye left(argv[1]);
-  Eye right(argv[2]);
-
-  int frame = -1;
-
+  std::unique_ptr<ImageSource> cam;
+  if (argc == 2) {
+    cam.reset(new ImageSourceMono(argv[1]));
+  } else if (argc == 3) {
+    cam.reset(new ImageSourceDuo(argv[1], argv[2]));
+  }
+  
   LocalMap map;
   map.AddCamera();
   map.AddCamera();
@@ -143,61 +248,62 @@ int main(int argc, char*argv[]) {
   Matcher tracking;
 
   Slam slam;
+  Mat prev;
   while (1) {
-    frame+=2;
-    left.grab();
-    right.grab();
+    int frame = map.frames.size();
 
-    left.proc();
-    right.proc();
+    Mat color, grey;
+    if (!cam->GetObservation(frame & 1, &color))
+      break;
 
-    
-    tracking.Track(left.grey_, 0, &map);
-    tracking.Track(right.grey_, 1, &map);
+    GaussianBlur(color, color, Size(5, 5), 1, 1);
+
+    cvtColor(color, grey, CV_RGB2GRAY);
+
+    tracking.Track(grey, frame & 1, &map);
+
+    if (prev.size() != color.size()) {
+      prev = color;
+      continue;
+    }
 
     //UpdateMap(&map, frame, normed_points, descriptors);
 
-    Mat blend;
-    addWeighted(left.frame_, 0.5, right.frame_, 0.5, 0, blend);
+    do {
+      // Just solve the current frame while holding all others
+      // constant.
+      slam.Run(&map, false,
+          [=](int frame_idx) ->bool{ return frame_idx == frame; }
+          );
+      slam.ReprojectMap(&map);
+    } while (!map.Clean());
 
-    // Draw observation history ontot left frame.
-    Mat& out = blend;
-    for (const auto& point : map.points) {
-      if (point->last_frame() == frame - 1) {
-        DrawCross(&out, point->last_point(), 2, Scalar(255,0,0));
-        continue;
-      }
-      if (point->last_frame() != frame)
-        continue;
-      if (point->num_observations() == 1) {
-        DrawCross(&out, point->last_point(), 2, Scalar(0,255,0));
-        continue;
-      }
-      int num = point->observations_.size();
-      for (int i = 0; i < (num - 1); ++i) {
-        DrawLine(&out, point->observations_[i].pt,
-            point->observations_[i+1].pt, Scalar(0,0,0));
-      }
-      DrawCross(&out, point->last_point(), 5, Scalar(0,0,255));
-    }
+    // Solve all frames.
+    slam.Run(&map, false, nullptr);
 
-    cv::imshow("Left", blend);
-    cv::imshow("Right", right.frame_);
+    double err1 = slam.ReprojectMap(&map);
+    map.Normalize();
+    double err2 = slam.ReprojectMap(&map);
+  printf("ERROR: %g v %g\n", err1, err2);
+    CHECK_NEAR(err1, err2, 1e-10);
 
-    int mod = 1;
-
-    slam.Run(&map, -1, false);
-    slam.ReprojectMap(&map);
     map.Clean();
 
-    if (0) {
-      slam.Run(&map, -1, false);
-      slam.ReprojectMap(&map);
-      map.Clean();
+    map.Stats();
 
-      //DumpMap(&map);
-    }
 
+    Mat blend;
+    addWeighted(prev, 0.5, color, 0.5, 0, blend);
+
+    // Draw observation history ontot left frame.
+    Mat out1 = prev.clone();
+    DrawDebug(map, &out1);
+    Mat out2 = color.clone();
+    DrawDebug(map, &out2);
+
+    cv::imshow("Left", out1);
+    cv::imshow("Right", out2);
+    prev = color;
     cv::waitKey(0);
     if (frame >= 100)
       break;

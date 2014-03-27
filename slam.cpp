@@ -102,7 +102,7 @@ struct ReprojectionError {
 
     T projected[2];
 
-    if (!project(xyscale, distortion, frame_rotation, frame_translation, point, projected))
+    if (!project(xyscale, distortion, frame_rotation, frame_translation, point, projected) && 0)
       return false;  // Point is behind camera.
 
     // The error is the difference between the predicted and observed position.
@@ -120,8 +120,8 @@ struct ReprojectionError {
 void Slam::SetupParameterization() {
   ceres::LocalParameterization* quaternion_parameterization =
       new ceres::QuaternionParameterization;
-  for (auto frame : pose_set_) {
-    problem_->SetParameterization(frame->rotation(),
+  for (auto frame : frame_set_) {
+    problem_->SetParameterization(frame->pose.rotation(),
                                  quaternion_parameterization);
   }
 
@@ -133,10 +133,11 @@ void Slam::SetupParameterization() {
 #endif
 }
 
-void Slam::SetupConstantBlocks(const int frame,
-                         int min_frame_to_solve,
-                         bool solve_cameras,
-                         LocalMap* map) {
+void Slam::SetupConstantBlocks(
+    LocalMap* map,
+    bool solve_cameras,
+    std::function<bool (int frame_idx)> solve_frame_p) {
+
  // problem_->SetParameterBlockConstant(map->frames[0].translation());
  // problem_->SetParameterBlockConstant(map->frames[0].rotation());
 
@@ -147,41 +148,69 @@ void Slam::SetupConstantBlocks(const int frame,
     }
   }
 
-  for (int i = 1; i < (int) ((map->frames.size())) && i < min_frame_to_solve;
-      ++i) {
-    auto f = &(map->frames[i]->pose);
-    if (!pose_set_.count(f))
+  if (!solve_frame_p)
+    return;  // Solve all frames == no constant frames.
+
+  for (auto& frame : frame_set_) {
+    if (solve_frame_p(frame->frame_num))
       continue;
-
-    problem_->SetParameterBlockConstant(f->translation());
-    problem_->SetParameterBlockConstant(f->rotation());
-  }
-
-  if (min_frame_to_solve >= 0) {
-    for (const auto& point : point_set_) {
-      if (point->last_frame() >= min_frame_to_solve)
-        continue;
-
-   //   problem_->SetParameterBlockConstant(point->location());
-    }
+    cout << "Setting frame " << frame->frame_num << " to constant." << endl;
+    problem_->SetParameterBlockConstant(frame->pose.translation());
+    problem_->SetParameterBlockConstant(frame->pose.rotation());
   }
 }
 
-bool Slam::SetupProblem(int min_frame_to_solve,
-                        LocalMap* map) {
+bool Slam::SetupProblem(
+    LocalMap* map,
+    std::function<bool (int frame_idx)> solve_frame_p) {
   // Create residuals for each observation in the bundle adjustment problem. The
   // parameters for cameras and points are added automatically.
   problem_.reset(new ceres::Problem);
-  pose_set_.clear();
+  frame_set_.clear();
   point_set_.clear();
 
-  auto loss = new ceres::CauchyLoss(.01);
+  auto loss = new ceres::CauchyLoss(.05);
   //auto loss = new ceres::HuberLoss(0.02);
+
+  // Search for the list of frames to be using. We use the set of
+  // all frames that reference points that are references by frames
+  // that need solving. 
+  // TODO: This is wasteful.
+  std::set<int> frames_to_use;
   for (auto& point : map->points) {
     if (point->observations_.size() < 2)
       continue;
+    bool use_point = false;
     for (const auto& o : point->observations_) {
-      CHECK_GE(o.frame_idx, 0);
+      if (o.frame_idx < 0)
+        continue;
+
+      if (solve_frame_p && !solve_frame_p(o.frame_idx))
+        continue;  // Not using this frame for solving.
+
+      // We do want this point.
+      use_point = true;
+      break;
+    }
+    if (!use_point)
+      continue;
+
+    for (const auto& o : point->observations_) {
+      if (o.frame_idx < 0)
+        continue;
+      frames_to_use.insert(o.frame_idx);
+    }
+    point_set_.insert(point.get());
+  }
+
+  for (auto point : point_set_) {
+    for (const auto& o : point->observations_) {
+      if (o.frame_idx < 0)
+        continue;
+
+      if (!frames_to_use.count(o.frame_idx))
+        continue;
+
       CHECK_LT(o.frame_idx, map->frames.size());
 
       // Each residual block takes a point and a camera as input and outputs a 2
@@ -204,29 +233,28 @@ bool Slam::SetupProblem(int min_frame_to_solve,
 
       camera_set_.insert(frame->camera);
 
-      Pose* f = &(map->frames[o.frame_idx]->pose);
-      pose_set_.insert(f);
+      frame_set_.insert(frame.get());
     }
-    point_set_.insert(point.get());
   }
 
-  if (pose_set_.size() < 2)
+  if (frame_set_.size() < 2)
     return false;
 
   return true;
 }
 
 void Slam::Run(LocalMap* map,
-               int min_frame_to_solve,
-               bool solve_cameras) {
+               bool solve_cameras,
+               std::function<bool (int frame_idx)> solve_frame_p) {
   // Create residuals for each observation in the bundle adjustment problem. The
   // parameters for cameras and points are added automatically.
 
   ceres::Solver::Options options;
-  if (!SetupProblem(min_frame_to_solve, map))
+  if (!SetupProblem(map,
+        solve_frame_p
+        ))
     return;
 
-  const int frame = map->frames.size() - 1;
 #if 0
   ceres::ParameterBlockOrdering* ordering =
       new ceres::ParameterBlockOrdering;
@@ -243,18 +271,17 @@ void Slam::Run(LocalMap* map,
 #endif
 
   SetupParameterization();
-  SetupConstantBlocks(frame, min_frame_to_solve,
-                      solve_cameras, map);
+  SetupConstantBlocks(map, solve_cameras, solve_frame_p);
 
   options.linear_solver_type = ceres::ITERATIVE_SCHUR;
   options.linear_solver_type = ceres::DENSE_SCHUR;
   options.preconditioner_type = ceres::SCHUR_JACOBI;
   options.minimizer_progress_to_stdout = true;
   //options.use_inner_iterations = true;
-  options.max_num_iterations = 150;
-  if (min_frame_to_solve < 0)
-    options.max_num_iterations = 1500;
-  options.function_tolerance = 1e-8;
+  options.max_num_iterations = 10;
+  if (!solve_frame_p)
+    options.max_num_iterations = 100;
+  options.function_tolerance = 1e-7;
   if (solve_cameras)
     options.function_tolerance = 1e-9;
   //  if (frames > 15) {
@@ -266,20 +293,22 @@ void Slam::Run(LocalMap* map,
 
   ceres::Solver::Summary summary;
   ceres::Solve(options, problem_.get(), &summary);
-  if (min_frame_to_solve < 0)
+  if (!solve_frame_p)
     std::cout << summary.FullReport() << "\n";
 
   iterations_ += summary.iterations.size();
   error_ = summary.final_cost;
 }
 
-void Slam::ReprojectMap(LocalMap* map) {
+double Slam::ReprojectMap(LocalMap* map) {
   // Update observation error for each point.
+  double mean(0);
+  double count(0);
   for (auto& point : map->points) {
     point->location_.normalize();
     for (auto& o : point->observations_) {
       o.error = o.pt;
-      const auto& frame = map->frames[o.frame_idx];
+      const auto& frame = map->frames[abs(o.frame_idx)];
 
       ReprojectionError project(o.pt(0), o.pt(1));
 
@@ -290,7 +319,10 @@ void Slam::ReprojectMap(LocalMap* map) {
               frame->pose.translation(),
               point->location().data(),
               o.error.data());
+      mean = mean + (o.error.norm() - mean) / (count + 1);
+      ++count;
     }
   }
+  return mean;
 }
 

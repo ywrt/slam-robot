@@ -3,7 +3,7 @@ CC=g++
 CFLAGS=-g
 #OPT=-O3 -ffast-math -msse4.2 
 CXXFLAGS = -fmessage-length=0 \
-              -std=c++0x -g -Wall $(OPT)
+              -std=c++0x -g -Wall $(OPT) -fsanitize=address
 LDFLAGS= -Lceres-solver-1.8.0/BUILD/lib
 CPPFLAGS= -Iceres-solver-1.8.0/include -I./eigen-eigen-ffa86ffb5570
 OBJS = octave.o octaveset.o grid.o slam.o localmap.o planner.o \
@@ -14,7 +14,7 @@ OBJS = octave.o octaveset.o grid.o slam.o localmap.o planner.o \
 
 TESTS = octave octaveset region grid histogram descriptor corners
 
-LDLIBS = -lceres -lopencv_calib3d -lopencv_highgui -lopencv_core -lopencv_features2d \
+LDLIBS = -lceres -lopencv_calib3d -lopencv_highgui -lopencv_video -lopencv_core -lopencv_features2d \
        -lopencv_flann -lopencv_imgproc -lglog -lgomp -lpthread \
        -lprotobuf -lblas -llapack -lcholmod -lm
 
