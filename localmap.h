@@ -38,19 +38,58 @@ struct Pose {
 
 // Camera intrinsics.
 struct Camera {
-  Camera() : scale_{1, 0.5626}, distortion_ {-0.01, 0} {}
+  Camera() : center{0,0}, focal{1,1}, k1{0}, k2{0}, p1{0},p2{0},k3{0} {}
 
-  double* xyscale() { return &scale_[0]; }
-  const double* xyscale() const { return &scale_[0]; }
+  // Takes frame coordinates and maps to (distorted) pixel coordinates.
+  Vector2d Distort(const Vector2d& px) const {
+    double x, y;
+    double x0 = x = px[0];
+    double y0 = y = px[1];
 
-  double* distortion() { return &distortion_[0]; }
-  const double* distortion() const { return &distortion_[0]; }
+    // k1, k2, p1, p2, k3
+    // compensate distortion iteratively
+    for( unsigned int j = 0; j < 5; j++ ) {
+      double r2 = x*x + y*y;
 
-  // 0 == focal length.
-  // 1, 2 == radial distortion for r^2 and r^4
-  double focal_;  // focal length.
-  double scale_[2];  // x, y scale.
-  double distortion_[2];  //  r^2 distortion, r^4 distortion.
+      double icdist = 1./(1 + ((k3*r2 + k2)*r2 + k1)*r2);
+      double deltaX = 2*p1*x*y + p2*(r2 + 2*x*x);
+      double deltaY = p1*(r2 + 2*y*y) + 2*p2*x*y;
+      x = (x0 - deltaX)*icdist;
+      y = (y0 - deltaY)*icdist;
+    }
+
+    // Save undistorted pixel coords:
+    Vector2d result;
+    result[0] = x;
+    result[1] = y;
+    return result.array() * focal.array() + center.array();
+  }
+
+  // Takes pixel co-ordinates and returns undistorted frame coordinates.
+  Vector2d Undistort(const Vector2d& px) const {
+    // TODO: Actually do the distortion.
+    Vector2d p = px;
+    p -= center;
+    p.array() /= focal.array();
+
+    double rd = p.squaredNorm();
+    double xd = p(0);
+    double yd = p(1);
+
+    double xu = xd*(1+k1*rd + k2*rd*rd + k3*rd*rd*rd) + 2*p1*xd*yd + p2*(rd+ 2*xd*xd);
+    double yu = yd*(1+k1*rd + k2*rd*rd + k3*rd*rd*rd) + p1*(rd + 2*yd*yd) + 2*p2*xd*yd;
+
+    Vector2d result;
+    result << xu, yu;
+    return result;
+  }
+
+  Vector2d center;
+  Vector2d focal;
+
+  double k1, k2;
+  double p1, p2;
+  double k3;
 };
 
 // A frame taken by a specific camera in a specific pose.
@@ -135,8 +174,9 @@ struct LocalMap {
   // Do simple motion estimation from the previous two frames.
   void EstimateMotion(const Frame* f2, const Frame* f1, Frame* curr);
 
-  // Discards errored observations.
-  bool Clean();
+  // Discards errored observations. Return true if
+  // no observations were discarded.
+  bool Clean(double error_threshold);
 
   // Normalize back to constant scale.
   void Normalize();

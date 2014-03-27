@@ -70,7 +70,7 @@ void VisitPairs(
   }
 }
 
-double ShowMatch(const Mat& a_img, const Mat& b_img, const Point2f& a, const Point2f& b, const Size& window) {
+void ShowMatch(const Mat& a_img, const Mat& b_img, const Point2f& a, const Point2f& b, const Size& window) {
   cv::Mat patch_a;
   cv::getRectSubPix(a_img, window, a, patch_a);
   patch_a = patch_a + (cv::Scalar::all(128) - cv::mean(patch_a));
@@ -349,8 +349,10 @@ bool Matcher::Track(const Mat& img, Frame* frame, LocalMap* map) {
   // have an associated TrackedPoint then add one. Use Frame::Unproject
   // to initialize the world space location of the tracked point.
   for (auto&f : list) {
-    Vector2d frame_point;
-    frame_point << f.pt.x / img.size().width * 2 - 1, f.pt.y / img.size().height * 2 - 1;
+    Vector2d fpt;
+    fpt << f.pt.x, f.pt.y;
+    Vector2d frame_point = frame->camera->Undistort(fpt);
+
     if (!f.point) {
       Vector4d location = frame->Unproject(frame_point, 1500);
       f.point = map->AddPoint(f.id, location);

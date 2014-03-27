@@ -28,7 +28,6 @@ class Slam {
   virtual ~Slam();
 
   void Run(LocalMap* map,
-           bool solve_camera,
            std::function<bool (int frame_idx)> solve_frame_p
            );
 
@@ -52,7 +51,6 @@ class Slam {
   void SetupParameterization();
   void SetupConstantBlocks(
       LocalMap* map,
-      bool solve_cameras,
       std::function<bool (int frame_idx)> solve_frame_p);
   bool SetupProblem(
       LocalMap* map,

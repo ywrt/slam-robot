@@ -91,9 +91,6 @@ struct ReprojectionError {
 
   template <typename T>
   bool operator()(
-      const T* const xyscale,
-      const T* const distortion,
-
       const T* const frame_rotation,  // eigen quarternion: [x,y,z,w]
       const T* const frame_translation,  // [x,y,z]
 
@@ -102,7 +99,7 @@ struct ReprojectionError {
 
     T projected[2];
 
-    if (!project(xyscale, distortion, frame_rotation, frame_translation, point, projected) && 0)
+    if (!project(frame_rotation, frame_translation, point, projected) && 0)
       return false;  // Point is behind camera.
 
     // The error is the difference between the predicted and observed position.
@@ -135,18 +132,10 @@ void Slam::SetupParameterization() {
 
 void Slam::SetupConstantBlocks(
     LocalMap* map,
-    bool solve_cameras,
     std::function<bool (int frame_idx)> solve_frame_p) {
 
- // problem_->SetParameterBlockConstant(map->frames[0].translation());
- // problem_->SetParameterBlockConstant(map->frames[0].rotation());
-
-  if (!solve_cameras) {
-    for (auto& camera : map->cameras) {
-      problem_->SetParameterBlockConstant(camera->xyscale());
-      problem_->SetParameterBlockConstant(camera->distortion());
-    }
-  }
+  // problem_->SetParameterBlockConstant(map->frames[0].translation());
+  // problem_->SetParameterBlockConstant(map->frames[0].rotation());
 
   if (!solve_frame_p)
     return;  // Solve all frames == no constant frames.
@@ -164,7 +153,7 @@ bool Slam::SetupProblem(
     LocalMap* map,
     std::function<bool (int frame_idx)> solve_frame_p) {
   // Create residuals for each observation in the bundle adjustment problem. The
-  // parameters for cameras and points are added automatically.
+  // parameters for points are added automatically.
   problem_.reset(new ceres::Problem);
   frame_set_.clear();
   point_set_.clear();
@@ -213,18 +202,16 @@ bool Slam::SetupProblem(
 
       CHECK_LT(o.frame_idx, map->frames.size());
 
-      // Each residual block takes a point and a camera as input and outputs a 2
+      // Each residual block takes a point and frame pose as input and outputs a 2
       // dimensional residual. Internally, the cost function stores the observed
       // image location and compares the reprojection against the observation.
       ceres::CostFunction* cost_function =
-          new ceres::AutoDiffCostFunction<ReprojectionError, 2, 2, 2, 4, 3, 4>(
+          new ceres::AutoDiffCostFunction<ReprojectionError, 2, 4, 3, 4>(
               new ReprojectionError(o.pt(0), o.pt(1)));
 
       const auto& frame = map->frames[o.frame_idx];
       problem_->AddResidualBlock(cost_function,
                                 loss /* squared loss */,
-                                frame->camera->xyscale(),
-                                frame->camera->distortion(),
 
                                 frame->pose.rotation(),
                                 frame->pose.translation(),
@@ -244,7 +231,6 @@ bool Slam::SetupProblem(
 }
 
 void Slam::Run(LocalMap* map,
-               bool solve_cameras,
                std::function<bool (int frame_idx)> solve_frame_p) {
   // Create residuals for each observation in the bundle adjustment problem. The
   // parameters for cameras and points are added automatically.
@@ -271,7 +257,7 @@ void Slam::Run(LocalMap* map,
 #endif
 
   SetupParameterization();
-  SetupConstantBlocks(map, solve_cameras, solve_frame_p);
+  SetupConstantBlocks(map, solve_frame_p);
 
   options.linear_solver_type = ceres::ITERATIVE_SCHUR;
   options.linear_solver_type = ceres::DENSE_SCHUR;
@@ -282,8 +268,6 @@ void Slam::Run(LocalMap* map,
   if (!solve_frame_p)
     options.max_num_iterations = 100;
   options.function_tolerance = 1e-7;
-  if (solve_cameras)
-    options.function_tolerance = 1e-9;
   //  if (frames > 15) {
   //  options.use_nonmonotonic_steps = true;
   //  }
@@ -313,8 +297,6 @@ double Slam::ReprojectMap(LocalMap* map) {
       ReprojectionError project(o.pt(0), o.pt(1));
 
       project(
-              frame->camera->xyscale(),
-              frame->camera->distortion(),
               frame->pose.rotation(),
               frame->pose.translation(),
               point->location().data(),

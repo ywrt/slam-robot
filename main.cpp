@@ -64,37 +64,28 @@ void DumpMap(LocalMap* map) {
 
 
 // Draw a diagonal cross onto an OpenCV image.
-void DrawCross(cv::Mat* out, const Vector2d& point, int size, Scalar color) {
-  Point2f a(
-      (point(0) + 1)/2 * out->cols,
-      (point(1) + 1)/2 * out->rows);
-  line(*out, a - Point2f(size,size), a + Point2f(size,size), color, 1, 8);
-  line(*out, a - Point2f(size,-size), a + Point2f(size,-size), color, 1, 8);
-}
-
-void DrawCross(cv::Mat* out, const Pos& point, int size, Scalar color) {
-  Point2f a(point.x, point.y);
+void DrawCross(cv::Mat* out, const Camera& cam, const Vector2d& point, int size, Scalar color) {
+  auto p = cam.Distort(point);
+  Point2f a(p(0), p(1));
   line(*out, a - Point2f(size,size), a + Point2f(size,size), color, 1, 8);
   line(*out, a - Point2f(size,-size), a + Point2f(size,-size), color, 1, 8);
 }
 
 void DrawLine(cv::Mat* out,
+    const Camera& cam,
     const Vector2d& from,
     const Vector2d& to,
     Scalar color) {
-  Point2f a(
-      (from(0) + 1)/2 * out->cols,
-      (from(1) + 1)/2 * out->rows);
-  Point2f b(
-      (to(0) + 1)/2 * out->cols,
-      (to(1) + 1)/2 * out->rows);
+  Vector2d p = cam.Distort(from);
+  Point2f a(p(0), p(1));
+  p = cam.Distort(to);
+  Point2f b(p(0), p(1));
   line(*out, a, b, color, 1, 8);
 }
 
-void DrawText(cv::Mat* out, const string& str, const Vector2d& pos) {
-  Point2f a(
-      (pos(0) + 1)/2 * out->cols - 7,
-      (pos(1) + 1)/2 * out->rows - 7);
+void DrawText(cv::Mat* out, const Camera& cam, const string& str, const Vector2d& pos) {
+  Vector2d p = cam.Distort(pos);
+  Point2f a(p(0), p(1));
   putText(*out, str, a, FONT_HERSHEY_PLAIN, 0.7, Scalar(0,0,255)); 
 }
 
@@ -190,39 +181,39 @@ class ImageSourceDuo : public ImageSource {
 };
 
 
-void DrawDebug(const LocalMap& map, Mat* img) {
+void DrawDebug(const LocalMap& map, const Camera& cam, Mat* img) {
   Mat& out = *img;
-  int frame = map.frames.size() - 1;
+  int frame_num = map.frames.size() - 1;
 
   for (const auto& point : map.points) {
-    if (point->last_frame() == frame - 1) {
-      DrawCross(&out, point->last_point(), 2, Scalar(255,0,0));
+    if (point->last_frame() == frame_num - 1) {
+      DrawCross(&out, cam, point->last_point(), 2, Scalar(255,0,0));
       continue;
     }
-    if (abs(point->last_frame()) != frame)
+    if (abs(point->last_frame()) != frame_num)
       continue;
 
     if (point->num_observations() == 1) {
-      DrawCross(&out, point->last_point(), 2, Scalar(0,255,0));
+      DrawCross(&out, cam, point->last_point(), 2, Scalar(0,255,0));
       continue;
     }
 
     int num = point->observations_.size();
-    if (point->observations_[num - 2].frame_idx == frame - 1) {
+    if (point->observations_[num - 2].frame_idx == frame_num - 1) {
       Scalar c(0,0,0);
-      if (point->observations_[num - 1].frame_idx == -frame) {
+      if (point->observations_[num - 1].frame_idx == -frame_num) {
         // Bad match.
         c = Scalar(255,255,255);
         cout << point->id_ << " is a bad point\n";
       }
-      DrawLine(&out, point->observations_[num - 2].pt,
+      DrawLine(&out, cam, point->observations_[num - 2].pt,
           point->observations_[num - 1].pt, c);
     }
-    DrawCross(&out, point->last_point(), 4, Scalar(0,0,255));
+    DrawCross(&out, cam, point->last_point(), 4, Scalar(0,0,255));
 
     char buff[20];
     sprintf(buff, "%d", point->id_);
-    DrawText(&out, buff, point->last_point());
+    DrawText(&out, cam, buff, point->last_point());
   }
 }
 
@@ -250,8 +241,40 @@ int main(int argc, char*argv[]) {
 
   // We assume two cameras, with frames from 'cam'
   // alternating between them.
-  map.AddCamera();
-  map.AddCamera();
+
+  // [CAMERA_PARAMS] Left
+  // resolution=[640 480]
+  // cx=287.03691
+  // cy=228.17558
+  // fx=530.05895
+  // fy=530.23204
+  // dist=[-1.442760e-01 3.246676e-01 1.588004e-04 -1.096403e-03 0.000000e+00]
+  //
+  // [CAMERA_PARAMS] Right
+  // resolution=[640 480]
+  // cx=312.14364
+  // cy=233.92664
+  // fx=525.75698
+  // fy=526.16432
+  // dist=[-1.091669e-01 2.201787e-01 -1.866669e-03 1.632135e-04 0.000000e+00]
+  //
+  Camera* cam_model = map.AddCamera();
+  cam_model->center << 287, 228;
+  cam_model->focal << 530.1, 530.2;
+  cam_model->k1 = -1.442760e-01;
+  cam_model->k2 = 3.246676e-01;
+  cam_model->p1 = 1.588004e-04;
+  cam_model->p2 = -1.096403e-03;
+  cam_model->k3 = 0.000000e+00;
+
+  cam_model = map.AddCamera();
+  cam_model->center << 312.14, 233.93;
+  cam_model->focal << 525.76, 526.16;
+  cam_model->k1 = -1.091669e-01;
+  cam_model->k2 = 2.201787e-01;
+  cam_model->p1 = -1.866669e-03;
+  cam_model->p2 = 1.632135e-04;
+  cam_model->k3 = 0.000000e+00;
 
   // A feature tracker. Holds internal state of the previous
   // images.
@@ -264,10 +287,11 @@ int main(int argc, char*argv[]) {
   Mat prev;
   while (1) {
     int frame_num = map.frames.size();
+    int camera = frame_num & 1;
 
     // Fetch the next image.
     Mat color, grey;
-    if (!cam->GetObservation(frame_num & 1, &color))
+    if (!cam->GetObservation(camera, &color))
       break;
 
     // Blur it slightly: stddev=1
@@ -277,7 +301,10 @@ int main(int argc, char*argv[]) {
     cvtColor(color, grey, CV_RGB2GRAY);
 
     // Add a new frame to the LocalMap (and with it, a new pose).
-    Frame* frame_ptr = map.AddFrame(map.cameras[frame_num & 1].get());
+    Frame* frame_ptr = map.AddFrame(map.cameras[camera].get());
+    // Compute the an initial pose estimate. We assume two cameras separated
+    // by 150mm along the X axis.
+    frame_ptr->pose.translation_ -= (camera * 2. - 1.) * Vector3d::UnitX() * 150.;
 
     // Track features against the new image, and fill them into
     // the LocalMap.
@@ -295,17 +322,19 @@ int main(int argc, char*argv[]) {
     // Run bundle adjustment, first against all the new frame pose
     // (and all world points) while holding all other frame poses
     // constant.
+    const double kErrorThreshold = 5.;
     do {
       // Just solve the current frame while holding all others
       // constant.
-      slam.Run(&map, false,
+      slam.Run(&map,
           [=](int frame_idx) ->bool{ return frame_idx == frame_num; }
           );
       slam.ReprojectMap(&map);
-    } while (!map.Clean());
+    } while (!map.Clean(kErrorThreshold));
 
     // Then solve all frame poses.
-    slam.Run(&map, false, nullptr);
+    slam.Run(&map, nullptr);
+    map.Clean(kErrorThreshold);
 
     // Rotate and scale the map back to a standard baseline.
     double err1 = slam.ReprojectMap(&map);
@@ -324,9 +353,9 @@ int main(int argc, char*argv[]) {
 
     // Draw observation history onto the left frame.
     Mat out1 = prev.clone();
-    DrawDebug(map, &out1);
+    DrawDebug(map, *(map.cameras[camera ^ 1].get()), &out1);
     Mat out2 = color.clone();
-    DrawDebug(map, &out2);
+    DrawDebug(map, *(map.cameras[camera].get()), &out2);
 
     cv::imshow("Left", out1);
     cv::imshow("Right", out2);

@@ -17,8 +17,6 @@
 bool Frame::Project(const Vector4d& point, Vector2d* result) const {
   ProjectPoint project;
   return project(
-          camera->xyscale(),
-          camera->distortion(),
           pose.rotation(),
           pose.translation(),
           point.data(),
@@ -27,13 +25,11 @@ bool Frame::Project(const Vector4d& point, Vector2d* result) const {
 
 Vector4d Frame::Unproject(const Vector2d& point, double distance) const {
   Vector4d result;
-  result(0) = point(0) / camera->xyscale()[0] * distance;
-  result(1) = point(1) / camera->xyscale()[1] * distance;
+  result.head<2>() = point * distance;
   result(2) = distance;
   result(3) = 1;
 
-  auto r = pose.rotation_.inverse() * (result.topLeftCorner(3,1) - pose.translation_);
-  result.topLeftCorner(3,1) = r;
+  result.head<3>() = (pose.rotation_.inverse() * (result.head<3>() - pose.translation_)).eval();
   result.normalize();
   return result;
 }
@@ -129,8 +125,8 @@ void LocalMap::Normalize() {
 #endif
 }
 
-bool LocalMap::Clean() {
-  const double kErrorThreshold = 20.;
+bool LocalMap::Clean(double error_threshold) {
+  printf("Cleaning\n");
 
   std::multimap<double, TrackedPoint*> errmap;
 
@@ -146,7 +142,7 @@ bool LocalMap::Clean() {
 
     double err = o.error.norm() * 1000;
 
-    if (err > kErrorThreshold) {
+    if (err > error_threshold) {
       errmap.insert({err, point.get() });
     }
   }
@@ -155,7 +151,7 @@ bool LocalMap::Clean() {
     return true;
 
   double maxerr = errmap.rbegin()->first;
-  maxerr = max(kErrorThreshold, maxerr / 4.);
+  maxerr = max(error_threshold, maxerr / 4.);
   cout << "Maxerr set to " << maxerr << "\n";
   bool result = true;
   for (auto iter = errmap.rbegin() ; iter != errmap.rend(); ++iter) {
@@ -212,7 +208,7 @@ void LocalMap::Stats() {
            point->location()[1] / point->location()[3],
            point->location()[2] / point->location()[3]
           );
-        if (err < 10) {
+        if (err < 2.) {
           o.frame_idx = -o.frame_idx;  // Restore it
           point->bad_--;
         }
