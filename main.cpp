@@ -125,6 +125,8 @@ class Eye {
   Mat frame_, grey_;
 };
 
+// Interface: A source of images. Typically a camera or
+// a video file.
 class ImageSource {
  protected:
   ImageSource() {}
@@ -134,6 +136,7 @@ class ImageSource {
   virtual bool Init() = 0;
 };
 
+// Source images from a single video file.
 class ImageSourceMono : public ImageSource {
  public:
   ImageSourceMono(const char* filename) : filename_(filename), cam_(filename) {}
@@ -153,6 +156,7 @@ class ImageSourceMono : public ImageSource {
   VideoCapture cam_;
 };
 
+// Source images from two video files.
 class ImageSourceDuo : public ImageSource {
  public:
   ImageSourceDuo(const char* filename1, const char* filename2) :
@@ -240,28 +244,47 @@ int main(int argc, char*argv[]) {
   } else if (argc == 3) {
     cam.reset(new ImageSourceDuo(argv[1], argv[2]));
   }
-  
+ 
+  // Our knowledge of the 3D world. 
   LocalMap map;
+
+  // We assume two cameras, with frames from 'cam'
+  // alternating between them.
   map.AddCamera();
   map.AddCamera();
 
+  // A feature tracker. Holds internal state of the previous
+  // images.
   Matcher tracking;
 
+  // Bundle adjustment.
   Slam slam;
+
+  // The previous image; used for displaying debugging information.
   Mat prev;
   while (1) {
-    int frame = map.frames.size();
+    int frame_num = map.frames.size();
 
+    // Fetch the next image.
     Mat color, grey;
-    if (!cam->GetObservation(frame & 1, &color))
+    if (!cam->GetObservation(frame_num & 1, &color))
       break;
 
+    // Blur it slightly: stddev=1
     GaussianBlur(color, color, Size(5, 5), 1, 1);
 
+    // Make a grey-scale version of it.
     cvtColor(color, grey, CV_RGB2GRAY);
 
-    tracking.Track(grey, frame & 1, &map);
+    // Add a new frame to the LocalMap (and with it, a new pose).
+    Frame* frame_ptr = map.AddFrame(map.cameras[frame_num & 1].get());
 
+    // Track features against the new image, and fill them into
+    // the LocalMap.
+    tracking.Track(grey, frame_ptr, &map);
+
+    // If there's not a previous image, then we can't run comparisons
+    // against it: Just skip to getting another image.
     if (prev.size() != color.size()) {
       prev = color;
       continue;
@@ -269,33 +292,37 @@ int main(int argc, char*argv[]) {
 
     //UpdateMap(&map, frame, normed_points, descriptors);
 
+    // Run bundle adjustment, first against all the new frame pose
+    // (and all world points) while holding all other frame poses
+    // constant.
     do {
       // Just solve the current frame while holding all others
       // constant.
       slam.Run(&map, false,
-          [=](int frame_idx) ->bool{ return frame_idx == frame; }
+          [=](int frame_idx) ->bool{ return frame_idx == frame_num; }
           );
       slam.ReprojectMap(&map);
     } while (!map.Clean());
 
-    // Solve all frames.
+    // Then solve all frame poses.
     slam.Run(&map, false, nullptr);
 
+    // Rotate and scale the map back to a standard baseline.
     double err1 = slam.ReprojectMap(&map);
     map.Normalize();
     double err2 = slam.ReprojectMap(&map);
   printf("ERROR: %g v %g\n", err1, err2);
     CHECK_NEAR(err1, err2, 1e-10);
 
-    map.Clean();
 
+    // Print some debugging stats to STDOUT.
     map.Stats();
 
 
     Mat blend;
     addWeighted(prev, 0.5, color, 0.5, 0, blend);
 
-    // Draw observation history ontot left frame.
+    // Draw observation history onto the left frame.
     Mat out1 = prev.clone();
     DrawDebug(map, &out1);
     Mat out2 = color.clone();
@@ -305,11 +332,10 @@ int main(int argc, char*argv[]) {
     cv::imshow("Right", out2);
     prev = color;
     cv::waitKey(0);
-    if (frame >= 100)
+    if (frame_num >= 100)
       break;
     //cv::waitKey(0);
   }
-  //slam.Run(&map, -1, true);
 
   DumpMap(&map);
 

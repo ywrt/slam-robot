@@ -278,7 +278,7 @@ void Slam::Run(LocalMap* map,
   options.preconditioner_type = ceres::SCHUR_JACOBI;
   options.minimizer_progress_to_stdout = true;
   //options.use_inner_iterations = true;
-  options.max_num_iterations = 10;
+  options.max_num_iterations = 100;
   if (!solve_frame_p)
     options.max_num_iterations = 100;
   options.function_tolerance = 1e-7;

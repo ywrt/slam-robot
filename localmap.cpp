@@ -89,6 +89,7 @@ void LocalMap::Normalize() {
   printf("Normalize\n");
   auto& pose1 = frames[0]->pose;
   auto& pose2 = frames[1]->pose;
+#if 1
   // Re-orient the map back to baseline, and base scale.
   auto xlate = pose1.rotation_ * (-pose1.translation_).eval();
   // The distance between the first two frames should be 150mm.
@@ -107,7 +108,8 @@ void LocalMap::Normalize() {
     loc.head<3>() -= xlate * loc[3];
     loc[3] /= scale;
   }
-
+#endif
+#if 0
   // Then rotate, first bring frame 0 to the identity rotation, and then
   // rotating to bring the second frame to [0,150,0]
   auto rotate = frames[0]->pose.rotation_.inverse().matrix().eval();
@@ -124,7 +126,7 @@ void LocalMap::Normalize() {
     auto& loc = p->location_;
     loc.head<3>() = (inverse * loc.head<3>()).eval();
   }
-
+#endif
 }
 
 bool LocalMap::Clean() {

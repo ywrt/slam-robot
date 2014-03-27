@@ -310,141 +310,60 @@ FeatureList FilterBad(const FeatureList& list) {
 
 }  // namespace
 
-bool Matcher::Track(const Mat& img, int camera, LocalMap* map) {
+
+// Track features from the previous two frames.
+// (There may be an assumption that the previous frames are from alternating
+// cameras).
+//
+// Adds matched features to the localmap.
+bool Matcher::Track(const Mat& img, Frame* frame, LocalMap* map) {
   auto&d = *data_;
   LOG(ERROR) << "Track";
-
 
   CHECK_NE(img.size().width, 0);
   CHECK_NE(img.size().height, 0);
   CHECK_NOTNULL(map);
+  CHECK_NOTNULL(frame);
 
+  // Build an image pyamid for the new image.
   vector<Mat> pyr;
   buildOpticalFlowPyramid(img, pyr, Size(kWindowSize, kWindowSize), 5, true); 
 
-  if (!d.img2_.size()) {
-    d.img2_ = move(d.img1_);
-    d.f2_ = move(d.f1_);
-
-    d.img1_ = move(pyr);
-    d.f1_.clear();
-
-    return true;
+  FeatureList list;
+  // Track against the previous image
+  if (d.img1_.size()) {
+    list = RunTrack(d.img1_, pyr, FilterBad(d.f1_), 400);
   }
 
-  Frame* frame = map->AddFrame(map->cameras[camera].get());
-  CHECK_NOTNULL(frame);
+  // Track against the previous previous image
+  if (d.img2_.size()) {
+    auto list2 = RunTrack(d.img2_, pyr, FilterBad(d.f2_), 300);
+    list = MergeLists(list2, list, 5);
+  }
 
-  auto list1 = RunTrack(d.img1_, pyr, FilterBad(d.f1_), 400);
-  auto list2 = RunTrack(d.img2_, pyr, FilterBad(d.f2_), 300);
-
-  auto list = MergeLists(list2, list1, 5);
-
+  // Add new features from the current image that aren't too close to an existing
+  // feature. Pass in a lambda to generate feature IDs.
   AddNewFeatures(img, &list, [&d]() -> int { return d.next_fid++; });
 
+  // Add the new observations to the LocalMap. If this feature doesn't
+  // have an associated TrackedPoint then add one. Use Frame::Unproject
+  // to initialize the world space location of the tracked point.
   for (auto&f : list) {
     Vector2d frame_point;
     frame_point << f.pt.x / img.size().width * 2 - 1, f.pt.y / img.size().height * 2 - 1;
     if (!f.point) {
-      Vector4d location = map->frame(frame->frame_num)->Unproject(frame_point, 500);
+      Vector4d location = frame->Unproject(frame_point, 1500);
       f.point = map->AddPoint(f.id, location);
     }
 
     f.point->AddObservation({frame_point, frame->frame_num});
   }
 
+  // Move the slide window forward.
   d.img2_ = move(d.img1_);
   d.f2_ = move(d.f1_);
 
   d.img1_ = move(pyr);
   d.f1_ = move(list);
-
-
-#if 0
-  double ransacReprojThreshold = 10;
-
-
-  // LK tracker previous features.
-
-  // Detect corners.
-  CHECK_EQ(CV_8U, img.type());
-  vector<KeyPoint> keypoints1;
-  detector_->detect(img, keypoints1, Mat());
-
-  // Compute descriptors for each corner.
-  Mat descriptors1;
-  extractor_->compute(img, keypoints1, descriptors1);
-
-  // Search for matching descriptors.
-  vector<bool> matched;  // was the corner successfully matched.
-  matched.resize(keypoints1.size());
-  vector<DMatch> matches;
-  if (descriptors_->size().height > 0 && descriptors1.size().height > 0) {
-    LOG(ERROR) << "query " << descriptors1.size().height << " against "
-               << descriptors_->size().height;
-    CHECK_EQ(descriptors1.size().width, descriptors_->size().width);
-    matcher_->match(descriptors1, *(descriptors_.get()), matches, Mat());
-  }
-
-  // Find the homography
-  vector<Point2d> p1;
-  vector<Point2d> p2;
-  for (const auto& m : matches) {
-    const Data& d = data_[m.trainIdx];
-
-    matched[m.queryIdx] = true;
-
-    Vector2d projected;
-    if (!frame->Project(d.point->location(), &projected))
-      continue;
-
-    p1.push_back({(projected(0) + 1) / 2 * img.size().width, (projected(1) + 1) /2 * img.size().height });
-    p2.push_back(keypoints1[m.queryIdx].pt);
-  }
-  
-  if (p1.size() > 6) {
-    Mat homog = findHomography(Mat(p1), Mat(p2), RANSAC, ransacReprojThreshold);
-
-    // Accept points that match the homography.
-    Mat p1t;
-    perspectiveTransform(Mat(p1), p1t, homog);
-    for (unsigned int i = 0; i < matches.size(); ++i) {
-      if (0 && norm(p2[i] - p1t.at<Point2d>(i, 0)) > ransacReprojThreshold) // outlier
-        continue;
-
-      Vector2d frame_point;
-      frame_point << p2[i].x / img.size().width * 2 - 1, p2[i].y / img.size().height * 2 - 1;
-
-      Observation o;
-      o.frame_idx = frame->frame_num;
-      o.pt = frame_point;
-
-      data_[matches[i].trainIdx].point->AddObservation(o);
-    }
-  }
-
-
-  const int size = 30;
-  int grid[size][size] = { };
-
-  
-
-  // Add unmatched points as new descriptors.
-  for (unsigned int i = 0; i < keypoints1.size(); ++i) {
-    if (matched[i])
-      continue;
-
-    Vector2d frame_point;
-    frame_point << keypoints1[i].pt.x / img.size().width * 2 - 1, keypoints1[i].pt.y / img.size().height * 2 - 1;
-    Vector4d location = map->frame(frame->frame_num)->Unproject(frame_point, 500);
-    TrackedPoint* point = map->AddPoint(location);
-
-    point->AddObservation({frame_point, frame->frame_num});
-
-    data_.push_back({point, frame->frame_num});
-
-    descriptors_->push_back(descriptors1.row(i));
-  }
-#endif
   return true;
 }

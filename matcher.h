@@ -7,6 +7,7 @@
 #include <opencv2/opencv.hpp>
 
 class LocalMap;
+class Frame;
 
 class Matcher {
  public:
@@ -15,7 +16,7 @@ class Matcher {
 
   struct Data;
 
-  bool Track(const cv::Mat& img, int camera, LocalMap* map);
+  bool Track(const cv::Mat& img, Frame* frame, LocalMap* map);
 
  private:
   std::unique_ptr<Data> data_;

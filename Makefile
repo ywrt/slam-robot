@@ -1,10 +1,11 @@
 
+SANITIZE=-fsanitize=address -fno-omit-frame-pointer 
 CC=g++
 CFLAGS=-g
 #OPT=-O3 -ffast-math -msse4.2 
-CXXFLAGS = -fmessage-length=0 \
-              -std=c++0x -g -Wall $(OPT) -fsanitize=address
-LDFLAGS= -Lceres-solver-1.8.0/BUILD/lib
+CXXFLAGS = -fmessage-length=72 \
+              -std=c++0x -g -Wall $(OPT) $(SANITIZE)
+LDFLAGS= -Lceres-solver-1.8.0/BUILD/lib $(SANITIZE)
 CPPFLAGS= -Iceres-solver-1.8.0/include -I./eigen-eigen-ffa86ffb5570
 OBJS = octave.o octaveset.o grid.o slam.o localmap.o planner.o \
     histogram.o \
