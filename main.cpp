@@ -1,10 +1,11 @@
 //
-// 1. Normalize slightly changes if points are unset or not. why?
 // 2. Relative mapping for points. (i.e bearing + range relative to initial observed frame).
-// 3. Triangle points for initialization after there are known poses.
+// 3. Triangulate points for initialization after there are known poses.
 // 4. First solve frame pose, and then unknown points.
-// 5. Speed.
 // 6. Bundle adjustment failure.
+// 7. Remove points behind cameras.
+// 8. Don't solve the entire world every time!
+// 9. Use a tree or graph of keyframes.
 //
 #include <stdio.h>
 #include <stdlib.h>
@@ -322,9 +323,11 @@ int main(int argc, char*argv[]) {
       slam.ReprojectMap(&map);
     } while (!map.Clean(kErrorThreshold));
 
-    // Then solve all frame poses.
-    slam.Run(&map, nullptr);
-    map.Clean(kErrorThreshold);
+    if (frame_num < 5 || (frame_num % 5) == 0) {
+      // Then solve all frame poses.
+      slam.Run(&map, nullptr);
+      map.Clean(kErrorThreshold);
+    }
 
     // Rotate and scale the map back to a standard baseline.
     double err1 = slam.ReprojectMap(&map);
@@ -350,9 +353,8 @@ int main(int argc, char*argv[]) {
     cv::imshow("Left", out1);
     cv::imshow("Right", out2);
     prev = color;
-    cv::waitKey(0);
-    if (frame_num >= 100)
-      break;
+    if (frame_num >= 200)
+      cv::waitKey(0);
     //cv::waitKey(0);
   }
 

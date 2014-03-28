@@ -348,15 +348,14 @@ void LocalMap::Stats() {
     auto f = frames[i].get();
 
     double distance = 0;
+    auto pos = f->position();
     if (i > 0) {
-      auto prev = frames[i-1].get();
-      distance = (f->pose.translation_ - prev->pose.translation_).norm();
+      distance = (pos - frames[i-1]->position()).norm();
     }
+
     printf("Frame %3d : [ % 9.4f, % 9.4f, % 9.4f ] distance %6.4f\n",
         f->frame_num,
-        f->pose.translation_[0],
-        f->pose.translation_[1],
-        f->pose.translation_[2],
+        pos(0), pos(1), pos(2),
         distance);
   }
 }
