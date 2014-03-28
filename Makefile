@@ -11,8 +11,6 @@ OBJS = grid.o slam.o localmap.o planner.o \
     histogram.o \
     imgtypes.o matcher.o
 
-#faster.o faster1.o \
-
 TESTS = region grid histogram descriptor
 
 LDLIBS = -lceres -lopencv_calib3d -lopencv_highgui -lopencv_video -lopencv_core -lopencv_features2d \
@@ -36,12 +34,5 @@ $(TARGET): $(OBJS) main.o
 
 $(DEPS): $(wildcard *.cpp) $(wildcard *.h) Makefile
 	$(CXX) $(CXXFLAGS) -MM $(wildcard *.cpp) > $(DEPS)
-
-# Can't compile with optimization turned on. too large!
-faster.o: faster.h faster.c
-	gcc -std=c99 -O -c faster.c
-
-faster1.o: faster.h faster1.c
-	gcc -std=c99 -O -c faster1.c
 
 -include $(DEPS)
