@@ -7,9 +7,11 @@ CXXFLAGS = -fmessage-length=72 \
               -std=c++0x -g -Wall $(OPT) $(SANITIZE)
 LDFLAGS= -Lceres-solver-1.8.0/BUILD/lib $(SANITIZE)
 CPPFLAGS= -Iceres-solver-1.8.0/include -I./eigen-eigen-ffa86ffb5570
-OBJS = grid.o slam.o localmap.o planner.o \
-    histogram.o \
-    imgtypes.o matcher.o
+OBJS = slam.o \
+       localmap.o \
+       planner.o \
+       histogram.o \
+       matcher.o
 
 TESTS = region grid histogram descriptor
 

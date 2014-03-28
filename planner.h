@@ -16,8 +16,6 @@
 
 #include <eigen3/Eigen/Eigen>
 
-#include "grid.h"
-
 using namespace Eigen;
 
 class Planner {

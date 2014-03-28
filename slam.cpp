@@ -19,17 +19,6 @@
 Slam::Slam() : iterations_(0), error_(0) {}
 Slam::~Slam() { }
 
-Vector2d fposToVector(const FPos& fp) {
-  Vector2d r;
-  r << fp.x * 2 - 1, fp.y * 2 - 1;
-  return r;
-}
-
-FPos vectorToFPos(const Vector2d& v) {
-  FPos fp((v(0) +1 ) / 2, (v(1) + 1) / 2);
-  return fp;
-}
-
 // Eigen compatible quaternion parameterization
 class QuaternionParameterization : public ceres::LocalParameterization {
 public:
