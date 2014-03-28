@@ -7,13 +7,13 @@ CXXFLAGS = -fmessage-length=72 \
               -std=c++0x -g -Wall $(OPT) $(SANITIZE)
 LDFLAGS= -Lceres-solver-1.8.0/BUILD/lib $(SANITIZE)
 CPPFLAGS= -Iceres-solver-1.8.0/include -I./eigen-eigen-ffa86ffb5570
-OBJS = octave.o octaveset.o grid.o slam.o localmap.o planner.o \
+OBJS = grid.o slam.o localmap.o planner.o \
     histogram.o \
     imgtypes.o matcher.o
 
 #faster.o faster1.o \
 
-TESTS = octave octaveset region grid histogram descriptor corners
+TESTS = region grid histogram descriptor
 
 LDLIBS = -lceres -lopencv_calib3d -lopencv_highgui -lopencv_video -lopencv_core -lopencv_features2d \
        -lopencv_flann -lopencv_imgproc -lglog -lgomp -lpthread \
