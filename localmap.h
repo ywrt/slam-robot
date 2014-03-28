@@ -33,8 +33,6 @@ struct Pose {
   const double* rotation() const { return rotation_.coeffs().data(); }
   const double* translation() const { return translation_.data(); }
 
-  string Print() const;
-
   Quaterniond rotation_;
   Vector3d translation_;
 };
@@ -44,48 +42,10 @@ struct Camera {
   Camera() : center{0,0}, focal{1,1}, k1{0}, k2{0}, p1{0},p2{0},k3{0} {}
 
   // Takes frame coordinates and maps to (distorted) pixel coordinates.
-  Vector2d Distort(const Vector2d& px) const {
-    double x, y;
-    double x0 = x = px[0];
-    double y0 = y = px[1];
-
-    // k1, k2, p1, p2, k3
-    // compensate distortion iteratively
-    for( unsigned int j = 0; j < 5; j++ ) {
-      double r2 = x*x + y*y;
-
-      double icdist = 1./(1 + ((k3*r2 + k2)*r2 + k1)*r2);
-      double deltaX = 2*p1*x*y + p2*(r2 + 2*x*x);
-      double deltaY = p1*(r2 + 2*y*y) + 2*p2*x*y;
-      x = (x0 - deltaX)*icdist;
-      y = (y0 - deltaY)*icdist;
-    }
-
-    // Save undistorted pixel coords:
-    Vector2d result;
-    result[0] = x;
-    result[1] = y;
-    return result.array() * focal.array() + center.array();
-  }
+  Vector2d Distort(const Vector2d& px) const;
 
   // Takes pixel co-ordinates and returns undistorted frame coordinates.
-  Vector2d Undistort(const Vector2d& px) const {
-    // TODO: Actually do the distortion.
-    Vector2d p = px;
-    p -= center;
-    p.array() /= focal.array();
-
-    double rd = p.squaredNorm();
-    double xd = p(0);
-    double yd = p(1);
-
-    double xu = xd*(1+k1*rd + k2*rd*rd + k3*rd*rd*rd) + 2*p1*xd*yd + p2*(rd+ 2*xd*xd);
-    double yu = yd*(1+k1*rd + k2*rd*rd + k3*rd*rd*rd) + p1*(rd + 2*yd*yd) + 2*p2*xd*yd;
-
-    Vector2d result;
-    result << xu, yu;
-    return result;
-  }
+  Vector2d Undistort(const Vector2d& px) const;
 
   Vector2d center;
   Vector2d focal;
@@ -106,7 +66,12 @@ struct Frame {
   // guess at distance into a homogenous point. 
   Vector4d Unproject(const Vector2d& point, double distance) const;
 
-  string Print() const;
+  // Frame origin in world space.
+  Vector3d position() const {
+    return pose.rotation_.inverse() * -pose.translation_;
+  }
+
+  int num() const { return frame_num; }
 
   int frame_num;
   Pose pose;
@@ -116,78 +81,98 @@ struct Frame {
 
 // An observation of a tracked point from a specific frame.
 struct Observation {
-  Observation() : frame_idx(-1) {}
-  Observation(Vector2d p, int frame_index) :
-      pt(p), frame_idx(frame_index) { }
+//  Observation() : frame(nullptr), is_disabled(0) {}
+  Observation(Vector2d p, Frame* frame_ptr) :
+      pt(p), frame(frame_ptr), is_disabled(0) { }
 
-  string Print(Frame* frame, TrackedPoint* point) const;
+  void enable() { is_disabled = 0; }
+  void disable() { is_disabled = 1; }
+  bool enabled() const { return !is_disabled; }
+  bool disabled() const { return is_disabled; }
 
   Vector2d pt;  // In [-1, 1] x [-1, 1]
   Vector2d error;  // For debugging: filled in by slam.
-  int frame_idx;
+  Frame* frame;
+  int is_disabled;
 };
 
 // A fully tracked point.
 // Has the location in world-space, the descriptors, and any
 // observations.
+//
+// An impaired point can be:
+//   1. Too close to a frame origin => entirely unusable.
+//   2. Have too short a baseline => Not (yet) usable for SLAM solving.
+//   3. Have insufficient usable observations. => Not (yet) usable for SLAM solving.
+//   4. Have recent mis-matched observations. => Should no longer be attached to visual feature.
 struct TrackedPoint {
   TrackedPoint() :
     location_ { 0, 0, 0, 1},
-    bad_(0),
-    usable_(false),
-    cams_(0)
+    id_(0),
+    flags_(0)
     { }
 
-    // Pointer to an array of 4 doubles being [X, Y, Z, W],
-    // the homogeous coordinates in world space.
-    const Vector4d& location() const { return location_; }
-    Vector4d& location() { return location_; }
- 
-    const Observation& last_obs() const { return observations_.back(); }   
+  enum Flags {
+    BAD_LOCATION,  // Too close to frame origin => entirely unusable.
+    NO_BASELINE,  // Insufficient baseline => Not (yet) usable for SLAM.
+    NO_OBSERVATIONS,  // Insufficient usable observations => Not (yet) SLAMable.
+    MISMATCHED,  // Has multiple recent mis-matched obs => Detach from visual feature.
+  };
 
-    // The last frame in which this point was observed.
-    int last_frame() const {
-      if (observations_.size() < 1)
-        return -1;
-      return observations_.back().frame_idx;
-    }
+  // Pointer to an array of 4 doubles being [X, Y, Z, W],
+  // the homogeous coordinates in world space.
+  const Vector4d& location() const { return location_; }
+  Vector4d& location() { return location_; }
 
-    // The most recent observation.
-    const Vector2d& last_point() const {
-      return observations_.back().pt;
-    }
+  const Observation& last_obs() const { return observations_.back(); }   
 
-    int id() const { return id_; }
+  // The last frame in which this point was observed.
+  Frame* last_frame() const {
+    if (!observations_.size())
+      return nullptr;
+    return observations_.back().frame;
+  }
 
-    bool usable() const { return usable_; }
+  // The most recent observation.
+  const Vector2d& last_point() const {
+    return observations_.back().pt;
+  }
 
-    // The number of observations of this point.
-    int num_observations() const { return observations_.size(); }
+  Vector3d position() const {
+    return location_.head<3>() / location_[3];
+  }
 
-    // Actual observations.
-    const vector<Observation>& observations() const { return observations_; }
-    vector<Observation>& observations() { return observations_; }
+  int id() const { return id_; }
 
-    void AddObservation(const Observation& obs) {
-      observations_.push_back(obs);
-      // TODO: Fix this to track the camera ID correctly.
-      // TODO: Fix this to actually check the baseline.
-      cams_ |= (1 << (obs.frame_idx & 1));
-      if (cams_ & 3)
-        usable_ = true;
-    }
+  void set_flag(Flags flag) { flags_ |= (1<<flag); }
+  void clear_flag(Flags flag) { flags_ &= ~(1<<flag); }
+  bool has_flag(Flags flag) const { return flags_ & (1<<flag); }
 
-    Vector4d location_;  // Homogeneous location in world.
-    vector<Observation> observations_;
-    int bad_;  // Number of bad feature matches.
-    int id_;
-    // True if usable for SLAM. i.e. has at least two good matches from
-    // frames that aren't too far apart.
-    bool usable_;
-    int cams_;
+  bool slam_usable() const { return !has_flag(BAD_LOCATION) && !has_flag(NO_BASELINE) && !has_flag(NO_OBSERVATIONS); }
+  bool feature_usable() const { return !has_flag(MISMATCHED) & !has_flag(BAD_LOCATION); }
+
+  // The number of observations of this point.
+  int num_observations() const { return observations_.size(); }
+
+  // The known observations of this point.
+  const vector<Observation>& observations() const { return observations_; }
+  vector<Observation>& observations() { return observations_; }
+
+  // Add a new observation of this point.
+  void AddObservation(const Observation& obs);
+
+  // Clear incorrectly set flags.
+  void CheckFlags();
+
+  Vector4d location_;  // Homogeneous location in world.
+  int id_;
+  int flags_;
+  vector<Observation> observations_;
 };
 
+//
 // Description of the known world.
+// 
 struct LocalMap {
   // Add a new (empty) frame to the map.
   // Returns the frame number.

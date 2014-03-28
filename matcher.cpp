@@ -198,13 +198,13 @@ void AddNewFeatures(const Mat& img, FeatureList* list, FUNC get_next_id) {
   vector<Point2f> corners;
   goodFeaturesToTrack(img,
       corners,
-      200,  // Max corners.
+      100,  // Max corners.
       0.02,  // Max quality ratio.
-      14  // Minimum distance between features.
+      20  // Minimum distance between features.
       );
 
   const int size = 30;
-  int grid[size + 2][size + 2];
+  int grid[size + 2][size + 2] = {};
   for (const auto& f : *list) {
     int gx = (f.pt.x / img.size().width) * size + 1;
     int gy = (f.pt.y / img.size().height) * size + 1;
@@ -317,8 +317,10 @@ FeatureList MergeLists(
 FeatureList FilterBad(const FeatureList& list) {
   FeatureList result;
   for (auto& f : list) {
-    if (f.point && f.point->bad_ > 2)
+    if (f.point && !f.point->feature_usable()) {
+      printf("p %3d: not feature usable\n", f.point->id());
       continue;
+    }
     result.push_back(f);
   }
   return result;
@@ -348,6 +350,7 @@ bool Matcher::Track(const Mat& img, Frame* frame, LocalMap* map) {
 
   FeatureList list;
   // Track against the previous image
+  // TODO: Lift out constants.
   if (d.img1_.size()) {
     list = RunTrack(d.img1_, pyr, FilterBad(d.f1_), 400);
   }
@@ -358,9 +361,13 @@ bool Matcher::Track(const Mat& img, Frame* frame, LocalMap* map) {
     list = MergeLists(list2, list, 5);
   }
 
-  // Add new features from the current image that aren't too close to an existing
-  // feature. Pass in a lambda to generate feature IDs.
-  AddNewFeatures(img, &list, [&d]() -> int { return d.next_fid++; });
+  // If there are insufficient trackable features, add new features from the
+  // current image that aren't too close to an existing feature. Pass in a
+  // lambda to generate feature IDs.
+  // TODO: Lift out constant.
+  if (list.size() < 40) {
+    AddNewFeatures(img, &list, [&d]() -> int { return d.next_fid++; });
+  }
 
   // Add the new observations to the LocalMap. If this feature doesn't
   // have an associated TrackedPoint then add one. Use Frame::Unproject
@@ -371,11 +378,12 @@ bool Matcher::Track(const Mat& img, Frame* frame, LocalMap* map) {
     Vector2d frame_point = frame->camera->Undistort(fpt);
 
     if (!f.point) {
+      // TODO: Lift constant.
       auto location = frame->Unproject(frame_point, 1500);
       f.point = map->AddPoint(f.id, location);
     }
 
-    f.point->AddObservation({frame_point, frame->frame_num});
+    f.point->AddObservation({frame_point, frame});
   }
 
   // Move the slide window forward.

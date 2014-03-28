@@ -2,35 +2,23 @@
 // 1. Normalize slightly changes if points are unset or not. why?
 // 2. Relative mapping for points. (i.e bearing + range relative to initial observed frame).
 // 3. Triangle points for initialization after there are known poses.
+// 4. First solve frame pose, and then unknown points.
+// 5. Speed.
+// 6. Bundle adjustment failure.
 //
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
 
 #include "opencv2/opencv.hpp"
-#include "opencv2/core/core.hpp"
-#include "opencv2/features2d/features2d.hpp"
-#include "opencv2/highgui/highgui.hpp"
-
-#include <ceres/ceres.h>
-#include <ceres/rotation.h>
-#include <ceres/ordered_groups.h>
-
-#include <vector>
-#include <map>
 
 #include <eigen3/Eigen/Eigen>
 
 #include <glog/logging.h>
 
-#include "imgtypes.h"
-#include "octaveset.h"
-
 #include "localmap.h"
 #include "slam.h"
 #include "matcher.h"
-#include "corners.h"
-
 
 using namespace std;
 using namespace cv;
@@ -177,11 +165,11 @@ void DrawDebug(const LocalMap& map, const Camera& cam, Mat* img) {
   int frame_num = map.frames.size() - 1;
 
   for (const auto& point : map.points) {
-    if (point->last_frame() == frame_num - 1) {
+    if (point->last_frame()->num() == frame_num - 1) {
       DrawCross(&out, cam, point->last_point(), 2, Scalar(255,0,0));
       continue;
     }
-    if (abs(point->last_frame()) != frame_num)
+    if (point->last_frame()->num() != frame_num)
       continue;
 
     if (point->num_observations() == 1) {
@@ -190,9 +178,9 @@ void DrawDebug(const LocalMap& map, const Camera& cam, Mat* img) {
     }
 
     int num = point->num_observations();
-    if (point->observations_[num - 2].frame_idx == frame_num - 1) {
+    if (point->observations_[num - 2].frame->num() == frame_num - 1) {
       Scalar c(0,0,0);
-      if (point->observations_[num - 1].frame_idx == -frame_num) {
+      if (point->observations_[num - 1].disabled()) {
         // Bad match.
         c = Scalar(255,255,255);
         cout << point->id_ << " is a bad point\n";
@@ -203,7 +191,7 @@ void DrawDebug(const LocalMap& map, const Camera& cam, Mat* img) {
     DrawCross(&out, cam, point->last_point(), 4, Scalar(0,0,255));
 
     char buff[20];
-    sprintf(buff, "%d", point->id_);
+    sprintf(buff, "%d", point->id());
     DrawText(&out, cam, buff, point->last_point());
   }
 }
@@ -250,22 +238,22 @@ int main(int argc, char*argv[]) {
   // dist=[-1.091669e-01 2.201787e-01 -1.866669e-03 1.632135e-04 0.000000e+00]
   //
   Camera* cam_model = map.AddCamera();
-  cam_model->center << 287, 228;
+  cam_model->center << 320, 240; // 287, 228;
   cam_model->focal << 530.1, 530.2;
-  cam_model->k1 = -1.442760e-01;
-  cam_model->k2 = 3.246676e-01;
-  cam_model->p1 = 1.588004e-04;
-  cam_model->p2 = -1.096403e-03;
-  cam_model->k3 = 0.000000e+00;
+  //cam_model->k1 = -1.442760e-01;
+  //cam_model->k2 = 3.246676e-01;
+  //cam_model->p1 = 1.588004e-04;
+  //cam_model->p2 = -1.096403e-03;
+  //cam_model->k3 = 0.000000e+00;
 
   cam_model = map.AddCamera();
-  cam_model->center << 312.14, 233.93;
+  cam_model->center << 320, 240; // 312.14, 233.93;
   cam_model->focal << 525.76, 526.16;
-  cam_model->k1 = -1.091669e-01;
-  cam_model->k2 = 2.201787e-01;
-  cam_model->p1 = -1.866669e-03;
-  cam_model->p2 = 1.632135e-04;
-  cam_model->k3 = 0.000000e+00;
+  //cam_model->k1 = -1.091669e-01;
+  //cam_model->k2 = 2.201787e-01;
+  //cam_model->p1 = -1.866669e-03;
+  //cam_model->p2 = 1.632135e-04;
+  //cam_model->k3 = 0.000000e+00;
 
   // A feature tracker. Holds internal state of the previous
   // images.
@@ -276,9 +264,13 @@ int main(int argc, char*argv[]) {
 
   // The previous image; used for displaying debugging information.
   Mat prev;
+  int camera = 1;
   while (1) {
-    int frame_num = map.frames.size();
-    int camera = frame_num & 1;
+    camera ^= 1;
+
+    Frame* frame_ptr = map.AddFrame(map.cameras[camera].get());
+    int frame_num = frame_ptr->num();
+    printf("\n============== Frame %d\n", frame_num);
 
     // Fetch the next image.
     Mat color, grey;
@@ -292,10 +284,17 @@ int main(int argc, char*argv[]) {
     cvtColor(color, grey, CV_RGB2GRAY);
 
     // Add a new frame to the LocalMap (and with it, a new pose).
-    Frame* frame_ptr = map.AddFrame(map.cameras[camera].get());
     // Compute the an initial pose estimate. We assume two cameras separated
     // by 150mm along the X axis.
-    frame_ptr->pose.translation_ -= (camera * 2. - 1.) * Vector3d::UnitX() * 150.;
+    if (map.frames.size() == 1) {
+      frame_ptr->pose.translation_ = Vector3d::Zero();
+    } else if (map.frames.size() == 2) {
+      frame_ptr->pose.translation_ = -Vector3d::UnitX() * 150.;
+    } else {
+      // Initialize pose from the two frames ago. (i.e. the previous frame
+      // for this camera).
+      frame_ptr->pose = map.frames[frame_num - 2]->pose;
+    }
 
     // Track features against the new image, and fill them into
     // the LocalMap.
@@ -313,12 +312,12 @@ int main(int argc, char*argv[]) {
     // Run bundle adjustment, first against all the new frame pose
     // (and all world points) while holding all other frame poses
     // constant.
-    const double kErrorThreshold = 5.;
+    const double kErrorThreshold = 3.;
     do {
       // Just solve the current frame while holding all others
       // constant.
       slam.Run(&map,
-          [=](int frame_idx) ->bool{ return frame_idx == frame_num; }
+          [=](int frame_id) ->bool{ return frame_id == frame_num; }
           );
       slam.ReprojectMap(&map);
     } while (!map.Clean(kErrorThreshold));
@@ -363,4 +362,5 @@ int main(int argc, char*argv[]) {
          slam.iterations(),
          slam.error());
   return 0;
+
 }

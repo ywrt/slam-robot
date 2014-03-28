@@ -1,8 +1,8 @@
 
-SANITIZE=-fsanitize=address -fno-omit-frame-pointer 
+SANITIZE= #-fsanitize=address -fno-omit-frame-pointer 
 CC=g++
 CFLAGS=-g
-#OPT=-O3 -ffast-math -msse4.2 
+OPT=-O3 -ffast-math -msse4.2 
 CXXFLAGS = -fmessage-length=72 \
               -std=c++0x -g -Wall $(OPT) $(SANITIZE)
 LDFLAGS= -Lceres-solver-1.8.0/BUILD/lib $(SANITIZE)
@@ -34,7 +34,7 @@ $(TARGET): $(OBJS) main.o
 %_run: %_test $(OBJS)
 	./$(@:%_run=%_test)
 
-$(DEPS): $(wildcard *.cpp) Makefile
+$(DEPS): $(wildcard *.cpp) $(wildcard *.h) Makefile
 	$(CXX) $(CXXFLAGS) -MM $(wildcard *.cpp) > $(DEPS)
 
 # Can't compile with optimization turned on. too large!
