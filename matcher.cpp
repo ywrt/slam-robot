@@ -152,7 +152,9 @@ FeatureList RunTrack(const ImageStack& prev, const ImageStack& img, const Featur
       1e-3);
 
   FeatureList result;
-  int lost(0), fail(0), good(0);
+  int lost(0), fail(0), good(0), oob(0);
+  Size img_size = img[0].size();
+  Rect bounds(Point(1, 1), Size(img_size.width - 2, img_size.height - 2));
   for (unsigned int i = 0; i < status1.size(); ++i) {
     if (!status1[i] || !status2[i]) {
       ++lost;
@@ -160,6 +162,11 @@ FeatureList RunTrack(const ImageStack& prev, const ImageStack& img, const Featur
     }
     if (norm(in[i] - in1[i]) > 2) {
       ++fail;
+      continue;
+    }
+
+    if (!bounds.contains(out[i])) {
+      ++oob;
       continue;
     }
 
@@ -180,7 +187,9 @@ FeatureList RunTrack(const ImageStack& prev, const ImageStack& img, const Featur
     ++good;
   }
 
-  cout << "Lost " << lost << ", Fail " << fail << ", Good " << good << "\n";
+  cout << "Lost " << lost << ", Fail " << fail
+    << ", OOB " << oob
+    << ", Good " << good << "\n";
   return result;
 }
 
@@ -189,16 +198,20 @@ void AddNewFeatures(const Mat& img, FeatureList* list, FUNC get_next_id) {
   vector<Point2f> corners;
   goodFeaturesToTrack(img,
       corners,
-      100,  // Max corners.
-      0.05,  // Max quality ratio.
-      10  // Minimum distance between features.
+      200,  // Max corners.
+      0.02,  // Max quality ratio.
+      14  // Minimum distance between features.
       );
 
-  const int size = 20;
+  const int size = 30;
   int grid[size + 2][size + 2];
   for (const auto& f : *list) {
     int gx = (f.pt.x / img.size().width) * size + 1;
     int gy = (f.pt.y / img.size().height) * size + 1;
+    CHECK_LT(0, gx) << f.pt.x << ", " << f.pt.y << " : [" << img.size().width << ", " << img.size().height << "\n";
+    CHECK_LT(0, gy) << f.pt.x << ", " << f.pt.y << " : [" << img.size().width << ", " << img.size().height << "\n";
+    CHECK_GT(size + 2, gx) << f.pt.x << ", " << f.pt.y << " : [" << img.size().width << ", " << img.size().height << "\n";
+    CHECK_GT(size + 2, gy) << f.pt.x << ", " << f.pt.y << " : [" << img.size().width << ", " << img.size().height << "\n";
     grid[gx-1][gy-1] = 1;
     grid[gx-0][gy-1] = 1;
     grid[gx+1][gy-1] = 1;
@@ -214,6 +227,10 @@ void AddNewFeatures(const Mat& img, FeatureList* list, FUNC get_next_id) {
   for (const auto& c : corners) {
     int gx = (c.x / img.size().width) * size + 1;
     int gy = (c.y / img.size().height) * size + 1;
+    CHECK_LT(0, gx);
+    CHECK_LT(0, gy);
+    CHECK_GT(size + 2, gx);
+    CHECK_GT(size + 2, gy);
     if (grid[gx][gy])
       continue;
 
@@ -354,7 +371,7 @@ bool Matcher::Track(const Mat& img, Frame* frame, LocalMap* map) {
     Vector2d frame_point = frame->camera->Undistort(fpt);
 
     if (!f.point) {
-      Vector4d location = frame->Unproject(frame_point, 1500);
+      auto location = frame->Unproject(frame_point, 1500);
       f.point = map->AddPoint(f.id, location);
     }
 

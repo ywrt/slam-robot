@@ -19,7 +19,7 @@ struct ProjectPoint {
     Eigen::Matrix<T, 3, 1> p = q * mpoint + translate * point[3];
 
     // Don't project points that are effectively behind the camera lens.
-    if (p[2] < 0.001)
+    if (p[2] < 0.001 * point[3])
       return false;
 
     // Project onto the image plane.
