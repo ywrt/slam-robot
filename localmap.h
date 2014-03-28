@@ -12,6 +12,7 @@
 #define LOCALMAP_H_
 #include <memory>
 #include <vector>
+#include <string>
 
 #include <eigen3/Eigen/Eigen>
 
@@ -31,6 +32,8 @@ struct Pose {
   double* translation() { return translation_.data(); }
   const double* rotation() const { return rotation_.coeffs().data(); }
   const double* translation() const { return translation_.data(); }
+
+  string Print() const;
 
   Quaterniond rotation_;
   Vector3d translation_;
@@ -103,6 +106,8 @@ struct Frame {
   // guess at distance into a homogenous point. 
   Vector4d Unproject(const Vector2d& point, double distance) const;
 
+  string Print() const;
+
   int frame_num;
   Pose pose;
   Camera* camera;
@@ -115,6 +120,8 @@ struct Observation {
   Observation(Vector2d p, int frame_index) :
       pt(p), frame_idx(frame_index) { }
 
+  string Print(Frame* frame, TrackedPoint* point) const;
+
   Vector2d pt;  // In [-1, 1] x [-1, 1]
   Vector2d error;  // For debugging: filled in by slam.
   int frame_idx;
@@ -126,7 +133,9 @@ struct Observation {
 struct TrackedPoint {
   TrackedPoint() :
     location_ { 0, 0, 0, 1},
-    bad_(0)
+    bad_(0),
+    usable_(false),
+    cams_(0)
     { }
 
     // Pointer to an array of 4 doubles being [X, Y, Z, W],
@@ -148,15 +157,34 @@ struct TrackedPoint {
       return observations_.back().pt;
     }
 
+    int id() const { return id_; }
+
+    bool usable() const { return usable_; }
+
     // The number of observations of this point.
     int num_observations() const { return observations_.size(); }
 
-    void AddObservation(const Observation& obs) { observations_.push_back(obs); }
+    // Actual observations.
+    const vector<Observation>& observations() const { return observations_; }
+    vector<Observation>& observations() { return observations_; }
+
+    void AddObservation(const Observation& obs) {
+      observations_.push_back(obs);
+      // TODO: Fix this to track the camera ID correctly.
+      // TODO: Fix this to actually check the baseline.
+      cams_ |= (1 << (obs.frame_idx & 1));
+      if (cams_ & 3)
+        usable_ = true;
+    }
 
     Vector4d location_;  // Homogeneous location in world.
     vector<Observation> observations_;
-    int bad_;
+    int bad_;  // Number of bad feature matches.
     int id_;
+    // True if usable for SLAM. i.e. has at least two good matches from
+    // frames that aren't too far apart.
+    bool usable_;
+    int cams_;
 };
 
 // Description of the known world.

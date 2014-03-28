@@ -98,6 +98,7 @@ void LocalMap::Normalize() {
     t *= scale;
     printf("{%9.4f, %9.4f, %9.4f}\n", t[0], t[1], t[2]);
   }
+
   for (auto& p : points) {
     // normalize to world co-ordinates.
     auto& loc = p->location_;
@@ -108,8 +109,8 @@ void LocalMap::Normalize() {
 #if 0
   // Then rotate, first bring frame 0 to the identity rotation, and then
   // rotating to bring the second frame to [0,150,0]
-  auto rotate = frames[0]->pose.rotation_.inverse().matrix().eval();
-  rotate = (Quaterniond().setFromTwoVectors(pose2.rotation_.inverse() * frames[1]->pose.translation_, -Vector3d::UnitY()) * rotate).eval();
+  auto rotate = pose1.rotation_.inverse().matrix().eval();
+  rotate = (Quaterniond().setFromTwoVectors(rotate * pose2.rotation_.inverse() * pose2.translation_, -Vector3d::UnitX()));
 
   auto inverse = rotate.inverse().eval();
   for (auto& f : frames) {
@@ -131,14 +132,28 @@ bool LocalMap::Clean(double error_threshold) {
   std::multimap<double, TrackedPoint*> errmap;
 
   for (auto& point : points) {
-    point->location_.normalize();
-
     if (point->num_observations() < 2)
-     continue;
+      continue;
+    if (!point->usable())
+      continue;
 
     auto& o = point->observations_.back();
     if (o.frame_idx < 0)
       continue;
+
+    Frame* frame = frames[o.frame_idx].get();
+
+    Vector3d r = frame->pose.rotation_ * point->location_.head<3>();
+    double dist = (r / point->location()[3] + frame->pose.translation_).norm();
+
+    if (dist < 10) {
+      // Point is very, very close to camera. Very likely to be a bad point.
+      printf("Bad point: f %03d, p %03d\n", frame->frame_num, point->id() );
+      point->usable_ = false;
+      o.frame_idx = -o.frame_idx;
+      point->bad_ += 5;
+      continue;
+    }
 
     double err = o.error.norm() * 1000;
 
@@ -193,7 +208,7 @@ void LocalMap::Stats() {
     point->location_.normalize();
     if (point->num_observations() < 2)
      continue;
-    for (auto& o : point->observations_) {
+    for (auto& o : point->observations()) {
       double err = o.error.norm() * 1000;
       if (err < 50 && o.frame_idx < 0) {
         // Debug dump.
@@ -237,3 +252,4 @@ void LocalMap::Stats() {
         distance);
   }
 }
+

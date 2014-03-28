@@ -171,7 +171,7 @@ FeatureList RunTrack(const ImageStack& prev, const ImageStack& img, const Featur
     }
 
     double score = ScoreMatch(prev[0], img[0], in[i], out[i], Size(21, 21));
-    printf("%3d : Score %f\n", list[i].id, score);
+    //printf("%3d : Score %f\n", list[i].id, score);
     if (score > max_error || list[i].id == 18) {
       //ShowMatch(prev[0], img[0], in[i], out[i], Size(21, 21));
     }

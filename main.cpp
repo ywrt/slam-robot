@@ -1,3 +1,8 @@
+//
+// 1. Normalize slightly changes if points are unset or not. why?
+// 2. Relative mapping for points. (i.e bearing + range relative to initial observed frame).
+// 3. Triangle points for initialization after there are known poses.
+//
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
@@ -30,20 +35,6 @@
 using namespace std;
 using namespace cv;
 using namespace Eigen;
-
-
-// TODO: Check point visibility before attempting to match.
-// TODO: Use descriptor matching to attempt loop closing.
-// TODO: Build and use key frames.
-// TODO: reduce use of structs.
-// TODO: Merge FPos and Vector2d.
-// TODO: Better bounds checking for Octave.
-// TODO: Better name for FPos (relative pos?)
-// TODO: Change FPos to use doubles.
-// TODO: Make it real time
-// TODO: Use pose estimate for homography estimates.
-// TODO: OMPL == Open Motion Planning Library.
-
 
 void DumpMap(LocalMap* map) {
   for (auto& f : map->frames) {
@@ -198,7 +189,7 @@ void DrawDebug(const LocalMap& map, const Camera& cam, Mat* img) {
       continue;
     }
 
-    int num = point->observations_.size();
+    int num = point->num_observations();
     if (point->observations_[num - 2].frame_idx == frame_num - 1) {
       Scalar c(0,0,0);
       if (point->observations_[num - 1].frame_idx == -frame_num) {
@@ -340,7 +331,7 @@ int main(int argc, char*argv[]) {
     double err1 = slam.ReprojectMap(&map);
     map.Normalize();
     double err2 = slam.ReprojectMap(&map);
-  printf("ERROR: %g v %g\n", err1, err2);
+
     CHECK_NEAR(err1, err2, 1e-10);
 
 

@@ -66,25 +66,6 @@ public:
   }
 };
 
-// Parameterization of homogeneous coordinates in R^3.
-// An implementation of x + delta(x) that preserves the
-// homogenization.
-struct HomogenousPlus {
-  template<typename T>
-  bool operator()(const T* x, const T* delta, T* delta_plus) {
-    Map<const Matrix<T, 4, 1>> mx(x);
-    Map<const Matrix<T, 3, 1>> mdelta(delta);
-    Map<Matrix<T, 4, 1>> mdelta_plus(delta_plus);
-
-    // TODO: work out why topLeftCorner<3, 1>() doesn't work.
-    mdelta_plus.topLeftCorner(3, 1) = mx.topLeftCorner(3, 1) * mx(3, 0);
-    mdelta_plus(3,0) = mx(3,0);
-    mdelta_plus.normalize();
-    
-    return true;
-  }
-};
-
 struct ReprojectionError {
   ReprojectionError(double observed_x, double observed_y) :
       observed_x(observed_x), observed_y(observed_y) { }
@@ -99,7 +80,7 @@ struct ReprojectionError {
 
     T projected[2];
 
-    if (!project(frame_rotation, frame_translation, point, projected) && 0)
+    if (!project(frame_rotation, frame_translation, point, projected))
       return false;  // Point is behind camera.
 
     // The error is the difference between the predicted and observed position.
@@ -167,24 +148,29 @@ bool Slam::SetupProblem(
   // TODO: This is wasteful.
   std::set<int> frames_to_use;
   for (auto& point : map->points) {
-    if (point->observations_.size() < 2)
+    if (point->num_observations() < 2)
       continue;
+    if (!point->usable())
+      continue;  // Not usable for SLAM yet.
     bool use_point = false;
-    for (const auto& o : point->observations_) {
+    int good_matches = 0;
+    for (const auto& o : point->observations()) {
       if (o.frame_idx < 0)
         continue;
+      ++good_matches;
 
-      if (solve_frame_p && !solve_frame_p(o.frame_idx))
+      if (solve_frame_p && !solve_frame_p(o.frame_idx)) {
         continue;  // Not using this frame for solving.
+      }
 
       // We do want this point.
       use_point = true;
-      break;
     }
-    if (!use_point)
+    if (!use_point || good_matches < 2) {
       continue;
+    }
 
-    for (const auto& o : point->observations_) {
+    for (const auto& o : point->observations()) {
       if (o.frame_idx < 0)
         continue;
       frames_to_use.insert(o.frame_idx);
@@ -193,7 +179,7 @@ bool Slam::SetupProblem(
   }
 
   for (auto point : point_set_) {
-    for (const auto& o : point->observations_) {
+    for (const auto& o : point->observations()) {
       if (o.frame_idx < 0)
         continue;
 
@@ -224,8 +210,10 @@ bool Slam::SetupProblem(
     }
   }
 
-  if (frame_set_.size() < 2)
+  if (frame_set_.size() < 2) {
+    cout << "Slam aborted due to frame set too small. " << frame_set_.size() << " and point set " << point_set_.size() << "\n";
     return false;
+  }
 
   return true;
 }
@@ -289,18 +277,19 @@ double Slam::ReprojectMap(LocalMap* map) {
   double mean(0);
   double count(0);
   for (auto& point : map->points) {
-    point->location_.normalize();
-    for (auto& o : point->observations_) {
+    for (auto& o : point->observations()) {
       o.error = o.pt;
       const auto& frame = map->frames[abs(o.frame_idx)];
 
       ReprojectionError project(o.pt(0), o.pt(1));
 
-      project(
+      bool result = project(
               frame->pose.rotation(),
               frame->pose.translation(),
               point->location().data(),
               o.error.data());
+      if (!result)
+        continue;  // Point can't be projected?
       mean = mean + (o.error.norm() - mean) / (count + 1);
       ++count;
     }
