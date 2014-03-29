@@ -83,6 +83,31 @@ struct ReprojectionError {
   double observed_y;
 };
 
+struct FrameDistance {
+  FrameDistance(double dist) : distance(dist) { }
+
+  template <typename T>
+  bool operator()(
+      const T* const f1_rotation,  // eigen quarternion: [x,y,z,w]
+      const T* const f1_translation,  // [x,y,z]
+      const T* const f2_rotation,  // eigen quarternion: [x,y,z,w]
+      const T* const f2_translation,  // [x,y,z]
+      T* residual) const {
+
+    Eigen::Map<const Eigen::Quaternion<T> > r1(f1_rotation);
+    Eigen::Map<const Eigen::Quaternion<T> > r2(f2_rotation);
+    Eigen::Map<const Eigen::Matrix<T, 3, 1> > t1(f1_translation);
+    Eigen::Map<const Eigen::Matrix<T, 3, 1> > t2(f2_translation);
+
+    T dist = (r1.matrix().inverse() * t1 - r2.matrix().inverse() * t2).norm();
+    // The error is the difference between the predicted and observed position.
+    residual[0] = 0.001 * (dist - T(distance));
+    return true;
+  }
+
+  double distance;
+};
+
 
 void Slam::SetupParameterization() {
   ceres::LocalParameterization* quaternion_parameterization =
@@ -130,7 +155,7 @@ bool Slam::SetupProblem(
   frame_set_.clear();
   point_set_.clear();
 
-  auto loss = new ceres::CauchyLoss(.005);
+  auto loss = new ceres::CauchyLoss(.002);
   //auto loss = new ceres::HuberLoss(0.02);
 
   // Search for the list of frames to be using. We use the set of
@@ -188,15 +213,38 @@ bool Slam::SetupProblem(
 
       problem_->AddResidualBlock(cost_function,
                                 loss /* squared loss */,
-
                                 o.frame->pose.rotation(),
                                 o.frame->pose.translation(),
-
                                 point->location().data());
 
       camera_set_.insert(o.frame->camera);
 
       frame_set_.insert(o.frame);
+    }
+  }
+
+  // Constraint the frame-to-frame distances.
+  if (1 || !solve_frame_p) {
+    auto frame_loss = new ceres::CauchyLoss(.1);
+    for (unsigned int i = 0; i < map->frames.size() - 1; ++i) {
+      auto f1 = map->frames[i].get();
+      auto f2 = map->frames[i+1].get();
+      if (!frame_set_.count(f1) || !frame_set_.count(f2))
+        continue;
+
+      // Consequtive frames in the problem.
+      ceres::CostFunction* cost_function =
+          new ceres::AutoDiffCostFunction<FrameDistance, 1, 4, 3, 4, 3>(
+              new FrameDistance(150.));
+
+      problem_->AddResidualBlock(cost_function,
+                                frame_loss /* squared loss */,
+                                f1->pose.rotation(),
+                                f1->pose.translation(),
+                                f2->pose.rotation(),
+                                f2->pose.translation());
+
+      
     }
   }
 

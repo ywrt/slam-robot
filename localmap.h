@@ -195,7 +195,7 @@ struct LocalMap {
   void Normalize();
 
   // Show map stats on stdout
-  void Stats();
+  void Stats() const;
 
   TrackedPoint* AddPoint(int id, const Vector4d& point);
 

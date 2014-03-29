@@ -314,7 +314,7 @@ bool LocalMap::Clean(double error_threshold) {
   return result;
 }
 
-void LocalMap::Stats() {
+void LocalMap::Stats() const {
   Histogram enabled_err_hist(10);
   Histogram disabled_err_hist(10);
 

@@ -27,11 +27,11 @@ using namespace Eigen;
 
 void DumpMap(LocalMap* map) {
   for (auto& f : map->frames) {
+    Vector3d pos = f->position();
     printf("(%f,%f,%f,%f) -> (%f, %f, %f)\n",
            f->pose.rotation()[0], f->pose.rotation()[1],
            f->pose.rotation()[2], f->pose.rotation()[3],
-           f->pose.translation()[0], f->pose.translation()[1],
-           f->pose.translation()[2]);
+           pos[0], pos[1], pos[2]);
   }
 #if 0
   for (auto& p : map->points) {
@@ -313,7 +313,7 @@ int main(int argc, char*argv[]) {
     // Run bundle adjustment, first against all the new frame pose
     // (and all world points) while holding all other frame poses
     // constant.
-    const double kErrorThreshold = 3.;
+    const double kErrorThreshold = 5.;
     do {
       // Just solve the current frame while holding all others
       // constant.
@@ -325,7 +325,8 @@ int main(int argc, char*argv[]) {
 
     if (frame_num < 5 || (frame_num % 5) == 0) {
       // Then solve all frame poses.
-      slam.Run(&map, nullptr);
+      //slam.Run(&map, nullptr);
+      slam.Run(&map, [=](int frame_id)->bool{return frame_id >= (frame_num - 10); });
       map.Clean(kErrorThreshold);
     }
 
@@ -338,7 +339,7 @@ int main(int argc, char*argv[]) {
 
 
     // Print some debugging stats to STDOUT.
-    map.Stats();
+    //map.Stats();
 
 
     Mat blend;
@@ -350,12 +351,17 @@ int main(int argc, char*argv[]) {
     Mat out2 = color.clone();
     DrawDebug(map, *(map.cameras[camera].get()), &out2);
 
-    cv::imshow("Left", out1);
-    cv::imshow("Right", out2);
+    if (camera&1) {
+      cv::imshow("Left", out1);
+      cv::imshow("Right", out2);
+    } else {
+      cv::imshow("Left", out2);
+      cv::imshow("Right", out1);
+    }
     prev = color;
-    if (frame_num >= 200)
-      cv::waitKey(0);
-    //cv::waitKey(0);
+    //if (frame_num >= 200)
+    //  cv::waitKey(0);
+    cv::waitKey(50);
   }
 
   DumpMap(&map);
