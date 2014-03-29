@@ -63,8 +63,8 @@ Vector2d Camera::Undistort(const Vector2d& px) const {
 bool Frame::Project(const Vector4d& point, Vector2d* result) const {
   ProjectPoint project;
   return project(
-          pose.rotation(),
-          pose.translation(),
+          rotation().coeffs().data(),
+          translation().data(),
           point.data(),
           result->data());
 }
@@ -75,7 +75,7 @@ Vector4d Frame::Unproject(const Vector2d& point, double distance) const {
   result(2) = distance;
   result(3) = 1;
 
-  result.head<3>() = (pose.rotation_.inverse() * (result.head<3>() - pose.translation_)).eval();
+  result.head<3>() = (rotation().inverse() * (result.head<3>() - translation())).eval();
   result.normalize();
   return result;
 }
@@ -139,29 +139,6 @@ Camera* LocalMap::AddCamera() {
   return cameras.back().get();
 }
 
-void LocalMap::EstimateMotion(const Frame* f2, const Frame* f1, Frame* curr) {
-  if (!f1 && !f2) {
-    curr->pose = Pose();
-    return;
-  }
-
-  if (!f2) {  // Only 1 previous frame.
-    curr->pose = f1->pose;
-    curr->pose.translation()[0] += 150;  // Assume a small movement in X.
-    return;
-  }
-
-  const auto& p2 = f2->pose;
-  const auto& p1 = f1->pose;
-
-  Vector3d motion = p1.translation_ - p2.translation_;
-  if (motion.norm() > 1)
-    motion /= motion.norm();
-
-  curr->pose = p1;
-  curr->pose.translation_ += motion;
-}
-
 TrackedPoint* LocalMap::AddPoint(int id, const Vector4d& location) {
   std::unique_ptr<TrackedPoint> p(new TrackedPoint);
   p->location_ = location;
@@ -177,19 +154,17 @@ void LocalMap::Normalize() {
     return;
 
   printf("Normalize\n");
-  auto& pose1 = frames[0]->pose;
-  auto& pose2 = frames[1]->pose;
+  auto& pose1 = frames[0];
+  auto& pose2 = frames[1];
 #if 1
   // Re-orient the map back to baseline, and base scale.
-  auto xlate = pose1.rotation_ * (-pose1.translation_).eval();
+  auto xlate = (pose1->rotation() * -pose1->translation()).eval();
   // The distance between the first two frames should be 150mm.
-  double scale = 150. / (pose1.rotation_.inverse() * pose1.translation_ - pose2.rotation_.inverse() * pose2.translation_).norm();
+  double scale = 150. / (pose1->rotation().inverse() * pose1->translation() - pose2->rotation().inverse() * pose2->translation()).norm();
   // First translate back to origin.
   for (auto& f : frames) {
-    auto& t = f->pose.translation_;
-    auto& r = f->pose.rotation_;
-    t += r * xlate;
-    t *= scale;
+    f->translation() += f->rotation() * xlate;
+    f->translation() *= scale;
   }
 
   for (auto& p : points) {
@@ -223,8 +198,8 @@ void LocalMap::Normalize() {
 void PrintObs(const Observation& o, const TrackedPoint& point) {
   // Debug dump.
   printf("f %3d, p %3d : (matches %d) [%7.3f %7.3f] err*1000 [%7.2f,%7.2f] -> %.2f [%7.3f, %7.3f, %7.3f]\n",
-     o.frame->frame_num,
-     point.id_,
+     o.frame->id(),
+     point.id(),
      point.num_observations(),
      o.pt(0), o.pt(1),
      o.error(0) * 1000, o.error(1) * 1000,
@@ -254,20 +229,36 @@ bool LocalMap::Clean(double error_threshold) {
     if (!point->slam_usable())
       continue;
 
+    // Force point scale factor to be strictly positive.
+    if (point->location_[3] < 0) {
+      point->location_[3] = -point->location_[3];
+    }
+    if (point->location_[3] < 1e-6) {
+      point->location_[3] = 1e-6;
+    }
+
     for (auto& o : point->observations()) {
+      // Is the reproject error too large? if so, maybe disable the obs.
+      // Is the reproject error too small to remain disabled? If so, enable.
       double err = o.error.norm() * 1000;
       if (!o.enabled() && err < error_threshold * 0.75) {
         // Hmmm. Observation now has small error. Restore it.
         o.enable();
         changed_points.insert(point.get());
-        printf("p %3d, f %3d: Re-enabled point.\n", point->id(), o.frame->num());
+        printf("p %3d, f %3d: Re-enabled point.\n", point->id(), o.frame->id());
         PrintObs(o, *point);
       } else if (o.enabled() && err > error_threshold) {
         // If the error exceeds the threshold, add it to the list to possibly mark as bad.
         errmap.insert({err, {point.get(), &o} });
       }
 
-      if ((o.frame->position() - point->position()).norm() < 1) {
+      // Is the point too close to the camera? This is an indication of a badly 
+      // tracked point (bundle adjustment is bringing it singular).
+      // First, move the point into frame space.
+      // if (o.frame->position() - point->position()).norm() < 1) {
+      Vector3d pos = o.frame->rotation() * point->position() + o.frame->translation();
+      if (pos[2] < 1) {
+        printf("p %3d, f %3d: Point is too close to camera. !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n", point->id(), o.frame->id());
         point->set_flag(TrackedPoint::Flags::BAD_LOCATION);
         changed_points.insert(point.get());
         break;
@@ -354,7 +345,7 @@ void LocalMap::Stats() const {
     }
 
     printf("Frame %3d : [ % 9.4f, % 9.4f, % 9.4f ] distance %6.4f\n",
-        f->frame_num,
+        f->id(),
         pos(0), pos(1), pos(2),
         distance);
   }

@@ -42,7 +42,6 @@ class Slam {
 
   std::set<Frame*> frame_set_;
   std::set<TrackedPoint*> point_set_;
-  std::set<Camera*> camera_set_;
 
   void SetupParameterization();
   void SetupConstantBlocks(

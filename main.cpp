@@ -6,6 +6,9 @@
 // 7. Remove points behind cameras.
 // 8. Don't solve the entire world every time!
 // 9. Use a tree or graph of keyframes.
+// 10. Consider loop closing when adding new points.
+// 11. Stop processing new frames when stationary.
+// 12. Add motion model.
 //
 #include <stdio.h>
 #include <stdlib.h>
@@ -28,9 +31,10 @@ using namespace Eigen;
 void DumpMap(LocalMap* map) {
   for (auto& f : map->frames) {
     Vector3d pos = f->position();
+    const auto& rot = f->rotation().coeffs();
     printf("(%f,%f,%f,%f) -> (%f, %f, %f)\n",
-           f->pose.rotation()[0], f->pose.rotation()[1],
-           f->pose.rotation()[2], f->pose.rotation()[3],
+           rot[0], rot[1],
+           rot[2], rot[3],
            pos[0], pos[1], pos[2]);
   }
 #if 0
@@ -163,14 +167,15 @@ class ImageSourceDuo : public ImageSource {
 
 void DrawDebug(const LocalMap& map, const Camera& cam, Mat* img) {
   Mat& out = *img;
-  int frame_num = map.frames.size() - 1;
+  int frame_id = map.frames.back()->id();
+  CHECK_EQ(frame_id, map.frames.size() - 1);
 
   for (const auto& point : map.points) {
-    if (point->last_frame()->num() == frame_num - 1) {
+    if (point->last_frame()->id() == frame_id - 1) {
       DrawCross(&out, cam, point->last_point(), 2, Scalar(255,0,0));
       continue;
     }
-    if (point->last_frame()->num() != frame_num)
+    if (point->last_frame()->id() != frame_id)
       continue;
 
     if (point->num_observations() == 1) {
@@ -179,7 +184,7 @@ void DrawDebug(const LocalMap& map, const Camera& cam, Mat* img) {
     }
 
     int num = point->num_observations();
-    if (point->observations_[num - 2].frame->num() == frame_num - 1) {
+    if (point->observations_[num - 2].frame->id() == frame_id - 1) {
       Scalar c(0,0,0);
       if (point->observations_[num - 1].disabled()) {
         // Bad match.
@@ -240,6 +245,7 @@ int main(int argc, char*argv[]) {
   //
   Camera* cam_model = map.AddCamera();
   cam_model->center << 320, 240; // 287, 228;
+  cam_model->center << 287, 228;
   cam_model->focal << 530.1, 530.2;
   //cam_model->k1 = -1.442760e-01;
   //cam_model->k2 = 3.246676e-01;
@@ -249,6 +255,7 @@ int main(int argc, char*argv[]) {
 
   cam_model = map.AddCamera();
   cam_model->center << 320, 240; // 312.14, 233.93;
+  cam_model->center << 312.14, 233.93;
   cam_model->focal << 525.76, 526.16;
   //cam_model->k1 = -1.091669e-01;
   //cam_model->k2 = 2.201787e-01;
@@ -270,8 +277,8 @@ int main(int argc, char*argv[]) {
     camera ^= 1;
 
     Frame* frame_ptr = map.AddFrame(map.cameras[camera].get());
-    int frame_num = frame_ptr->num();
-    printf("\n============== Frame %d\n", frame_num);
+    int frame_id = frame_ptr->id();
+    printf("\n============== Frame %d\n", frame_id);
 
     // Fetch the next image.
     Mat color, grey;
@@ -288,13 +295,14 @@ int main(int argc, char*argv[]) {
     // Compute the an initial pose estimate. We assume two cameras separated
     // by 150mm along the X axis.
     if (map.frames.size() == 1) {
-      frame_ptr->pose.translation_ = Vector3d::Zero();
+      frame_ptr->translation() = Vector3d::Zero();
     } else if (map.frames.size() == 2) {
-      frame_ptr->pose.translation_ = -Vector3d::UnitX() * 150.;
+      frame_ptr->translation() = -Vector3d::UnitX() * 150.;
     } else {
       // Initialize pose from the two frames ago. (i.e. the previous frame
       // for this camera).
-      frame_ptr->pose = map.frames[frame_num - 2]->pose;
+      frame_ptr->translation() = map.frames[frame_id - 2]->translation();
+      frame_ptr->rotation() = map.frames[frame_id - 2]->rotation();
     }
 
     // Track features against the new image, and fill them into
@@ -308,25 +316,24 @@ int main(int argc, char*argv[]) {
       continue;
     }
 
-    //UpdateMap(&map, frame, normed_points, descriptors);
-
     // Run bundle adjustment, first against all the new frame pose
     // (and all world points) while holding all other frame poses
     // constant.
     const double kErrorThreshold = 5.;
     do {
-      // Just solve the current frame while holding all others
-      // constant.
+      // Just solve the current frame pose while holding all other frame
+      // poses constant.
       slam.Run(&map,
-          [=](int frame_id) ->bool{ return frame_id == frame_num; }
+          [=](int frame) ->bool{ return frame == frame_id; }
           );
       slam.ReprojectMap(&map);
     } while (!map.Clean(kErrorThreshold));
 
-    if (frame_num < 5 || (frame_num % 5) == 0) {
+    if (frame_id < 5 || (frame_id % 5) == 0) {
       // Then solve all frame poses.
       //slam.Run(&map, nullptr);
-      slam.Run(&map, [=](int frame_id)->bool{return frame_id >= (frame_num - 10); });
+      // Solve the last 10 frame poses.
+      slam.Run(&map, [=](int frame)->bool{return frame >= (frame_id - 10); });
       map.Clean(kErrorThreshold);
     }
 
@@ -361,10 +368,14 @@ int main(int argc, char*argv[]) {
     prev = color;
     //if (frame_num >= 200)
     //  cv::waitKey(0);
-    cv::waitKey(50);
+    cv::waitKey(0);
+    //if (frame_num == 100) break;
   }
 
-  DumpMap(&map);
+  map.Stats();
+  slam.Run(&map, nullptr);
+
+  //DumpMap(&map);
 
   printf("Iterations: %d, error %f\n",
          slam.iterations(),

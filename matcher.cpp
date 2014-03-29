@@ -337,7 +337,6 @@ FeatureList FilterBad(const FeatureList& list) {
 // Adds matched features to the localmap.
 bool Matcher::Track(const Mat& img, Frame* frame, LocalMap* map) {
   auto&d = *data_;
-  LOG(ERROR) << "Track";
 
   CHECK_NE(img.size().width, 0);
   CHECK_NE(img.size().height, 0);
@@ -375,7 +374,7 @@ bool Matcher::Track(const Mat& img, Frame* frame, LocalMap* map) {
   for (auto&f : list) {
     Vector2d fpt;
     fpt << f.pt.x, f.pt.y;
-    Vector2d frame_point = frame->camera->Undistort(fpt);
+    Vector2d frame_point = frame->camera()->Undistort(fpt);
 
     if (!f.point) {
       // TODO: Lift constant.

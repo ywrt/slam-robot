@@ -57,7 +57,12 @@ struct Camera {
 
 // A frame taken by a specific camera in a specific pose.
 struct Frame {
-  Frame(int num, Camera* cam) : frame_num(num), camera(cam) { }
+ public:
+  Frame(int id, Camera* cam) :
+    frame_id_(id),
+    camera_(cam),
+    rotation_{1, 0, 0, 0},
+    translation_{0, 0, 0} { }
 
   // Project a tracked point into frame pixel space.
   bool Project(const Vector4d& point, Vector2d* result) const;
@@ -68,14 +73,26 @@ struct Frame {
 
   // Frame origin in world space.
   Vector3d position() const {
-    return pose.rotation_.inverse() * -pose.translation_;
+    return rotation_.inverse() * -translation_;
   }
 
-  int num() const { return frame_num; }
+  // A unique id for this frame.
+  int id() const { return frame_id_; }
 
-  int frame_num;
-  Pose pose;
-  Camera* camera;
+  // Pose details.
+  const Quaterniond& rotation() const { return rotation_; }
+  const Vector3d& translation() const { return translation_; }
+  Quaterniond& rotation() { return rotation_; }
+  Vector3d& translation() { return translation_; }
+
+  // The camera intrinsics.
+  const Camera* camera() const { return camera_; }
+
+ private:
+  int frame_id_;
+  Camera* camera_;
+  Quaterniond rotation_;
+  Vector3d translation_;
 };
 
 

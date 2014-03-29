@@ -113,7 +113,7 @@ void Slam::SetupParameterization() {
   ceres::LocalParameterization* quaternion_parameterization =
       new ceres::QuaternionParameterization;
   for (auto frame : frame_set_) {
-    problem_->SetParameterization(frame->pose.rotation(),
+    problem_->SetParameterization(frame->rotation().coeffs().data(),
                                  quaternion_parameterization);
   }
 
@@ -129,19 +129,16 @@ void Slam::SetupConstantBlocks(
     LocalMap* map,
     std::function<bool (int frame_idx)> solve_frame_p) {
 
-  // problem_->SetParameterBlockConstant(map->frames[0].translation());
-  // problem_->SetParameterBlockConstant(map->frames[0].rotation());
-
   if (!solve_frame_p)
     return;  // Solve all frames == no constant frames.
 
   cout << "Setting frames ";
   for (auto& frame : frame_set_) {
-    if (solve_frame_p(frame->frame_num))
+    if (solve_frame_p(frame->id()))
       continue;
-    cout << frame->frame_num << ", ";
-    problem_->SetParameterBlockConstant(frame->pose.translation());
-    problem_->SetParameterBlockConstant(frame->pose.rotation());
+    cout << frame->id() << ", ";
+    problem_->SetParameterBlockConstant(frame->translation().data());
+    problem_->SetParameterBlockConstant(frame->rotation().coeffs().data());
   }
   cout << " to const.\n";
 }
@@ -162,7 +159,7 @@ bool Slam::SetupProblem(
   // all frames that reference points that are references by frames
   // that need solving. 
   // TODO: This is wasteful.
-  std::set<int> frames_to_use;
+  std::set<Frame*> frames_to_use;
   for (auto& point : map->points) {
     if (!point->slam_usable())
       continue;  // Not (yet?) usable for SLAM problem.
@@ -173,7 +170,7 @@ bool Slam::SetupProblem(
         continue;
       }
 
-      if (solve_frame_p && !solve_frame_p(o.frame->num())) {
+      if (solve_frame_p && !solve_frame_p(o.frame->id())) {
         continue;  // Not using this frame for solving.
       }
 
@@ -187,7 +184,7 @@ bool Slam::SetupProblem(
     for (const auto& o : point->observations()) {
       if (o.disabled())
         continue;
-      frames_to_use.insert(o.frame->num());
+      frames_to_use.insert(o.frame);
     }
     point_set_.insert(point.get());
   }
@@ -199,10 +196,10 @@ bool Slam::SetupProblem(
       if (o.disabled())
         continue;
 
-      if (!frames_to_use.count(o.frame->num()))
+      if (!frames_to_use.count(o.frame))
         continue;
 
-      CHECK_LT(o.frame->num(), map->frames.size());
+      CHECK_LT(o.frame->id(), map->frames.size());
 
       // Each residual block takes a point and frame pose as input and outputs a 2
       // dimensional residual. Internally, the cost function stores the observed
@@ -213,11 +210,9 @@ bool Slam::SetupProblem(
 
       problem_->AddResidualBlock(cost_function,
                                 loss /* squared loss */,
-                                o.frame->pose.rotation(),
-                                o.frame->pose.translation(),
+                                o.frame->rotation().coeffs().data(),
+                                o.frame->translation().data(),
                                 point->location().data());
-
-      camera_set_.insert(o.frame->camera);
 
       frame_set_.insert(o.frame);
     }
@@ -239,10 +234,10 @@ bool Slam::SetupProblem(
 
       problem_->AddResidualBlock(cost_function,
                                 frame_loss /* squared loss */,
-                                f1->pose.rotation(),
-                                f1->pose.translation(),
-                                f2->pose.rotation(),
-                                f2->pose.translation());
+                                f1->rotation().coeffs().data(),
+                                f1->translation().data(),
+                                f2->rotation().coeffs().data(),
+                                f2->translation().data());
 
       
     }
@@ -267,28 +262,13 @@ void Slam::Run(LocalMap* map,
         ))
     return;
 
-#if 0
-  ceres::ParameterBlockOrdering* ordering =
-      new ceres::ParameterBlockOrdering;
-  for (auto p : point_set_) {
-    ordering->AddElementToGroup(p->location(), 0);
-  }
-  for (auto frame : pose_set_) {
-    ordering->AddElementToGroup(frame->translation(), 1);
-    ordering->AddElementToGroup(frame->rotation(), 2);
-  }
-  ordering->AddElementToGroup(&(map->camera.data[0]), 3);
-  ordering->AddElementToGroup(&(map->camera.data[1]), 4);
-  options.linear_solver_ordering = ordering;
-#endif
-
   SetupParameterization();
   SetupConstantBlocks(map, solve_frame_p);
 
   options.linear_solver_type = ceres::ITERATIVE_SCHUR;
   options.linear_solver_type = ceres::SPARSE_SCHUR;
   options.preconditioner_type = ceres::SCHUR_JACOBI;
-  options.minimizer_progress_to_stdout = true;
+  //options.minimizer_progress_to_stdout = true;
   //options.use_inner_iterations = true;
   options.max_num_iterations = 100;
   if (!solve_frame_p)
@@ -298,7 +278,7 @@ void Slam::Run(LocalMap* map,
   //  options.use_nonmonotonic_steps = true;
   //  }
   //options.use_block_amd = true;
-  options.num_threads = 3;
+  //options.num_threads = 3;
   //options.parameter_tolerance = 1e-9;
 
   ceres::Solver::Summary summary;
@@ -322,8 +302,8 @@ double Slam::ReprojectMap(LocalMap* map) {
       ReprojectionError project(o.pt(0), o.pt(1));
 
       bool result = project(
-              o.frame->pose.rotation(),
-              o.frame->pose.translation(),
+              o.frame->rotation().coeffs().data(),
+              o.frame->translation().data(),
               point->location().data(),
               o.error.data());
       if (!result)
