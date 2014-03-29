@@ -323,9 +323,9 @@ int main(int argc, char*argv[]) {
     do {
       // Just solve the current frame pose while holding all other frame
       // poses constant.
-      slam.Run(&map,
-          [=](int frame) ->bool{ return frame == frame_id; }
-          );
+      slam.Run(&map, [=](Frame* frame) -> bool {
+          return frame->id() == frame_id;
+        });
       slam.ReprojectMap(&map);
     } while (!map.Clean(kErrorThreshold));
 
@@ -333,7 +333,9 @@ int main(int argc, char*argv[]) {
       // Then solve all frame poses.
       //slam.Run(&map, nullptr);
       // Solve the last 10 frame poses.
-      slam.Run(&map, [=](int frame)->bool{return frame >= (frame_id - 10); });
+      slam.Run(&map, [=](Frame* frame)-> bool {
+          return frame->id() >= (frame_id - 10);
+        });
       map.Clean(kErrorThreshold);
     }
 

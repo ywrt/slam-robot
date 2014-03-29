@@ -127,14 +127,14 @@ void Slam::SetupParameterization() {
 
 void Slam::SetupConstantBlocks(
     LocalMap* map,
-    std::function<bool (int frame_idx)> solve_frame_p) {
+    std::function<bool (Frame* frame_idx)> solve_frame_p) {
 
   if (!solve_frame_p)
     return;  // Solve all frames == no constant frames.
 
   cout << "Setting frames ";
   for (auto& frame : frame_set_) {
-    if (solve_frame_p(frame->id()))
+    if (solve_frame_p(frame))
       continue;
     cout << frame->id() << ", ";
     problem_->SetParameterBlockConstant(frame->translation().data());
@@ -145,7 +145,7 @@ void Slam::SetupConstantBlocks(
 
 bool Slam::SetupProblem(
     LocalMap* map,
-    std::function<bool (int frame_idx)> solve_frame_p) {
+    std::function<bool (Frame* frame_idx)> solve_frame_p) {
   // Create residuals for each observation in the bundle adjustment problem. The
   // parameters for points are added automatically.
   problem_.reset(new ceres::Problem);
@@ -170,7 +170,7 @@ bool Slam::SetupProblem(
         continue;
       }
 
-      if (solve_frame_p && !solve_frame_p(o.frame->id())) {
+      if (solve_frame_p && !solve_frame_p(o.frame)) {
         continue;  // Not using this frame for solving.
       }
 
@@ -198,8 +198,6 @@ bool Slam::SetupProblem(
 
       if (!frames_to_use.count(o.frame))
         continue;
-
-      CHECK_LT(o.frame->id(), map->frames.size());
 
       // Each residual block takes a point and frame pose as input and outputs a 2
       // dimensional residual. Internally, the cost function stores the observed
@@ -252,7 +250,7 @@ bool Slam::SetupProblem(
 }
 
 void Slam::Run(LocalMap* map,
-               std::function<bool (int frame_idx)> solve_frame_p) {
+               std::function<bool (Frame* frame_idx)> solve_frame_p) {
   // Create residuals for each observation in the bundle adjustment problem. The
   // parameters for cameras and points are added automatically.
 

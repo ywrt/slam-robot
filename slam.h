@@ -24,7 +24,7 @@ class Slam {
   virtual ~Slam();
 
   void Run(LocalMap* map,
-           std::function<bool (int frame_idx)> solve_frame_p
+           std::function<bool (Frame* frame_idx)> solve_frame_p
            );
 
   // TODO: This belong in LocalMap which means the projection
@@ -46,10 +46,10 @@ class Slam {
   void SetupParameterization();
   void SetupConstantBlocks(
       LocalMap* map,
-      std::function<bool (int frame_idx)> solve_frame_p);
+      std::function<bool (Frame* frame_idx)> solve_frame_p);
   bool SetupProblem(
       LocalMap* map,
-      std::function<bool (int frame_idx)> solve_frame_p);
+      std::function<bool (Frame* frame_idx)> solve_frame_p);
 
   int iterations_;
   double error_;
