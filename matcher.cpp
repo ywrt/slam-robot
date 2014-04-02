@@ -152,7 +152,7 @@ FeatureList RunTrack(const ImageStack& prev, const ImageStack& img, const Featur
       1e-3);
 
   FeatureList result;
-  int lost(0), fail(0), good(0), oob(0);
+  int lost(0), fail(0), fail_score(0), good(0), oob(0);
   Size img_size = img[0].size();
   Rect bounds(Point(1, 1), Size(img_size.width - 2, img_size.height - 2));
   for (unsigned int i = 0; i < status1.size(); ++i) {
@@ -160,7 +160,8 @@ FeatureList RunTrack(const ImageStack& prev, const ImageStack& img, const Featur
       ++lost;
       continue;
     }
-    if (norm(in[i] - in1[i]) > 2) {
+    // TODO: lift constant.
+    if (norm(in[i] - in1[i]) > 1) {
       ++fail;
       continue;
     }
@@ -177,7 +178,7 @@ FeatureList RunTrack(const ImageStack& prev, const ImageStack& img, const Featur
     }
 
     if (score > max_error) {
-      fail++;
+      fail_score++;
       continue;
     }
 
@@ -188,6 +189,7 @@ FeatureList RunTrack(const ImageStack& prev, const ImageStack& img, const Featur
   }
 
   cout << "Lost " << lost << ", Fail " << fail
+    << ", Bad score " << fail_score
     << ", OOB " << oob
     << ", Good " << good << "\n";
   return result;
@@ -199,7 +201,7 @@ void AddNewFeatures(const Mat& img, FeatureList* list, FUNC get_next_id) {
   goodFeaturesToTrack(img,
       corners,
       100,  // Max corners.
-      0.02,  // Max quality ratio.
+      0.05,  // Max quality ratio.
       20  // Minimum distance between features.
       );
 
@@ -351,12 +353,12 @@ bool Matcher::Track(const Mat& img, Frame* frame, LocalMap* map) {
   // Track against the previous image
   // TODO: Lift out constants.
   if (d.img1_.size()) {
-    list = RunTrack(d.img1_, pyr, FilterBad(d.f1_), 400);
+    list = RunTrack(d.img1_, pyr, FilterBad(d.f1_), 1000);
   }
 
   // Track against the previous previous image
   if (d.img2_.size()) {
-    auto list2 = RunTrack(d.img2_, pyr, FilterBad(d.f2_), 300);
+    auto list2 = RunTrack(d.img2_, pyr, FilterBad(d.f2_), 1000);
     list = MergeLists(list2, list, 5);
   }
 

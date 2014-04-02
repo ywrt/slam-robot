@@ -140,9 +140,7 @@ Camera* LocalMap::AddCamera() {
 }
 
 TrackedPoint* LocalMap::AddPoint(int id, const Vector4d& location) {
-  std::unique_ptr<TrackedPoint> p(new TrackedPoint);
-  p->location_ = location;
-  p->id_ = id;
+  std::unique_ptr<TrackedPoint> p(new TrackedPoint(location, id));
   p->set_flag(TrackedPoint::Flags::NO_OBSERVATIONS);
   p->set_flag(TrackedPoint::Flags::NO_BASELINE);
   points.push_back(std::move(p));
@@ -169,9 +167,8 @@ void LocalMap::Normalize() {
 
   for (auto& p : points) {
     // normalize to world co-ordinates.
-    auto& loc = p->location_;
-    loc.head<3>() -= xlate * loc[3];
-    loc[3] /= scale;
+    p->move(-xlate);
+    p->rescale(1./scale);
   }
 #endif
 #if 0
@@ -230,11 +227,11 @@ bool LocalMap::Clean(double error_threshold) {
       continue;
 
     // Force point scale factor to be strictly positive.
-    if (point->location_[3] < 0) {
-      point->location_[3] = -point->location_[3];
+    if (point->location()[3] < 0) {
+      point->location()[3] = -point->location()[3];
     }
-    if (point->location_[3] < 1e-6) {
-      point->location_[3] = 1e-6;
+    if (point->location()[3] < 1e-6) {
+      point->location()[3] = 1e-6;
     }
 
     for (auto& o : point->observations()) {
@@ -312,7 +309,6 @@ void LocalMap::Stats() const {
   printf("Stats\n");
   int non_slam(0);
   for (auto& point : points) {
-    point->location_.normalize();
     if (!point->slam_usable()) {
       ++non_slam;
       continue;

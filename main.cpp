@@ -9,6 +9,7 @@
 // 10. Consider loop closing when adding new points.
 // 11. Stop processing new frames when stationary.
 // 12. Add motion model.
+// 13. Extract patches and display in GL.
 //
 #include <stdio.h>
 #include <stdlib.h>
@@ -28,21 +29,30 @@ using namespace std;
 using namespace cv;
 using namespace Eigen;
 
-void DumpMap(LocalMap* map) {
+void DumpMap(LocalMap* map, FILE* out) {
   for (auto& f : map->frames) {
+    if ((f->id() & 1) != 0) continue;
     Vector3d pos = f->position();
-    const auto& rot = f->rotation().coeffs();
-    printf("(%f,%f,%f,%f) -> (%f, %f, %f)\n",
-           rot[0], rot[1],
-           rot[2], rot[3],
+    //const auto& rot = f->rotation().coeffs();
+    fprintf(out, "%f  %f  %f\n",
            pos[0], pos[1], pos[2]);
   }
-#if 0
-  for (auto& p : map->points) {
-    printf("pt %f,%f,%f\n",
-           p.data[0], p.data[1], p.data[2]);
+  fprintf(out, "\n");
+  for (auto& f : map->frames) {
+    if ((f->id() & 1) != 1) continue;
+    Vector3d pos = f->position();
+    const auto& rot = f->rotation().coeffs();
+    fprintf(out, "%f  %f  %f\n",
+           pos[0], pos[1], pos[2]);
   }
-#endif
+  fprintf(out, "\n");
+
+  for (auto& p : map->points) {
+    Vector3d pos = p->position();
+    if (pos.norm() > 4000)
+      continue;
+    fprintf(out, "%f %f %f\n\n", pos(0), pos(1), pos(2));
+  }
 
 }
 
@@ -171,34 +181,46 @@ void DrawDebug(const LocalMap& map, const Camera& cam, Mat* img) {
   CHECK_EQ(frame_id, map.frames.size() - 1);
 
   for (const auto& point : map.points) {
-    if (point->last_frame()->id() == frame_id - 1) {
-      DrawCross(&out, cam, point->last_point(), 2, Scalar(255,0,0));
+    // Always has at least one observation.
+    const auto& obs = point->observation(-1);
+
+    // If it doesn't appear in this frame, but does appear in the previous
+    // frame, draw it as a blue cross.
+    if (obs.frame->id() == frame_id - 1) {
+      DrawCross(&out, cam, obs.pt, 2, Scalar(255,0,0));
       continue;
     }
-    if (point->last_frame()->id() != frame_id)
+
+    // If it doesn't appear in this frame, skip it.
+    if (obs.frame->id() != frame_id)
       continue;
 
+    // If it has only 1 observation, it's a new point: Draw it as a
+    // green cross.
     if (point->num_observations() == 1) {
-      DrawCross(&out, cam, point->last_point(), 2, Scalar(0,255,0));
+      DrawCross(&out, cam, obs.pt, 2, Scalar(0,255,0));
       continue;
     }
 
-    int num = point->num_observations();
-    if (point->observations_[num - 2].frame->id() == frame_id - 1) {
+    // It's a tracked point. Draw the current location as a red cross,
+    // and a line back to the previous observation. If the current observation
+    // is disabled, then draw it as a white line (else a black line).
+    const auto& prev = point->observation(-2);
+    if (prev.frame->id() == frame_id - 1) {
       Scalar c(0,0,0);
-      if (point->observations_[num - 1].disabled()) {
+      if (obs.disabled()) {
         // Bad match.
         c = Scalar(255,255,255);
-        cout << point->id_ << " is a bad point\n";
+        cout << point->id() << " is a bad point\n";
       }
-      DrawLine(&out, cam, point->observations_[num - 2].pt,
-          point->observations_[num - 1].pt, c);
+      DrawLine(&out, cam, prev.pt, obs.pt, c);
     }
-    DrawCross(&out, cam, point->last_point(), 4, Scalar(0,0,255));
+    DrawCross(&out, cam, obs.pt, 3, Scalar(0,0,255));
 
+    // Label with the point id.
     char buff[20];
     sprintf(buff, "%d", point->id());
-    DrawText(&out, cam, buff, point->last_point());
+    DrawText(&out, cam, buff, obs.pt);
   }
 }
 
@@ -319,13 +341,15 @@ int main(int argc, char*argv[]) {
     // Run bundle adjustment, first against all the new frame pose
     // (and all world points) while holding all other frame poses
     // constant.
-    const double kErrorThreshold = 5.;
+    const double kErrorThreshold = 15.;
     do {
       // Just solve the current frame pose while holding all other frame
       // poses constant.
-      slam.Run(&map, [=](Frame* frame) -> bool {
+      if (!slam.Run(&map, [=](Frame* frame) -> bool {
           return frame->id() == frame_id;
-        });
+        })) {
+        break;  // Failed to run SLAM.
+      }
       slam.ReprojectMap(&map);
     } while (!map.Clean(kErrorThreshold));
 
@@ -370,14 +394,16 @@ int main(int argc, char*argv[]) {
     prev = color;
     //if (frame_num >= 200)
     //  cv::waitKey(0);
-    cv::waitKey(0);
-    //if (frame_num == 100) break;
+    cv::waitKey(10);
+    if (frame_id == 400) break;
   }
 
   map.Stats();
   slam.Run(&map, nullptr);
 
-  //DumpMap(&map);
+  FILE* f = fopen("/tmp/z", "w");
+  DumpMap(&map, f);
+  fclose(f);
 
   printf("Iterations: %d, error %f\n",
          slam.iterations(),

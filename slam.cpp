@@ -152,7 +152,7 @@ bool Slam::SetupProblem(
   frame_set_.clear();
   point_set_.clear();
 
-  auto loss = new ceres::CauchyLoss(.002);
+  auto loss = new ceres::CauchyLoss(.01);
   //auto loss = new ceres::HuberLoss(0.02);
 
   // Search for the list of frames to be using. We use the set of
@@ -218,7 +218,7 @@ bool Slam::SetupProblem(
 
   // Constraint the frame-to-frame distances.
   if (1 || !solve_frame_p) {
-    auto frame_loss = new ceres::CauchyLoss(.1);
+    auto frame_loss = new ceres::CauchyLoss(.3);
     for (unsigned int i = 0; i < map->frames.size() - 1; ++i) {
       auto f1 = map->frames[i].get();
       auto f2 = map->frames[i+1].get();
@@ -249,7 +249,7 @@ bool Slam::SetupProblem(
   return true;
 }
 
-void Slam::Run(LocalMap* map,
+bool Slam::Run(LocalMap* map,
                std::function<bool (Frame* frame_idx)> solve_frame_p) {
   // Create residuals for each observation in the bundle adjustment problem. The
   // parameters for cameras and points are added automatically.
@@ -258,7 +258,7 @@ void Slam::Run(LocalMap* map,
   if (!SetupProblem(map,
         solve_frame_p
         ))
-    return;
+    return false;
 
   SetupParameterization();
   SetupConstantBlocks(map, solve_frame_p);
@@ -282,11 +282,17 @@ void Slam::Run(LocalMap* map,
   ceres::Solver::Summary summary;
   ceres::Solve(options, problem_.get(), &summary);
 
-  if (!solve_frame_p)
+  if (!solve_frame_p) {
     std::cout << summary.FullReport() << "\n";
+  } else {
+    std::cout << summary.BriefReport() << "\n";
+    std::cout << "Error: " << summary.error << "\n";
+  }
 
   iterations_ += summary.iterations.size();
   error_ = summary.final_cost;
+
+  return summary.error.size() == 0;
 }
 
 double Slam::ReprojectMap(LocalMap* map) {

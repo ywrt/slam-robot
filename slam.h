@@ -23,7 +23,7 @@ class Slam {
   Slam();
   virtual ~Slam();
 
-  void Run(LocalMap* map,
+  bool Run(LocalMap* map,
            std::function<bool (Frame* frame_idx)> solve_frame_p
            );
 

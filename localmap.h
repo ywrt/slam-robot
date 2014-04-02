@@ -21,22 +21,6 @@ using namespace std;
 
 class TrackedPoint;
 
-// Position and orientation of a frame camera.
-// measures in world coordinates.
-struct Pose {
-  Pose() :
-    rotation_ {1,0,0,0},
-    translation_ {0,0,10} {}
-
-  double* rotation() { return rotation_.coeffs().data(); }
-  double* translation() { return translation_.data(); }
-  const double* rotation() const { return rotation_.coeffs().data(); }
-  const double* translation() const { return translation_.data(); }
-
-  Quaterniond rotation_;
-  Vector3d translation_;
-};
-
 // Camera intrinsics.
 struct Camera {
   Camera() : center{0,0}, focal{1,1}, k1{0}, k2{0}, p1{0},p2{0},k3{0} {}
@@ -56,7 +40,7 @@ struct Camera {
 };
 
 // A frame taken by a specific camera in a specific pose.
-struct Frame {
+class Frame {
  public:
   Frame(int id, Camera* cam) :
     frame_id_(id),
@@ -122,10 +106,11 @@ struct Observation {
 //   2. Have too short a baseline => Not (yet) usable for SLAM solving.
 //   3. Have insufficient usable observations. => Not (yet) usable for SLAM solving.
 //   4. Have recent mis-matched observations. => Should no longer be attached to visual feature.
-struct TrackedPoint {
-  TrackedPoint() :
-    location_ { 0, 0, 0, 1},
-    id_(0),
+class TrackedPoint {
+ public:
+  TrackedPoint(const Vector4d& location, int id) :
+    location_(location),
+    id_(id),
     flags_(0)
     { }
 
@@ -141,26 +126,40 @@ struct TrackedPoint {
   const Vector4d& location() const { return location_; }
   Vector4d& location() { return location_; }
 
-  const Observation& last_obs() const { return observations_.back(); }   
+  // The known observations of this point.
+  const vector<Observation>& observations() const { return observations_; }
+  vector<Observation>& observations() { return observations_; }
 
-  // The last frame in which this point was observed.
-  Frame* last_frame() const {
-    if (!observations_.size())
-      return nullptr;
-    return observations_.back().frame;
-  }
+  // The number of observations of this point.
+  int num_observations() const { return observations_.size(); }
+  // Return an observation. If idx is negative, then observations relative to the
+  // most recent. -1 == most recent, -2 == previous most recent, etc.
+  const Observation& observation(int idx) const {
+    if (idx >= 0) {
+      return observations_[idx];
+    } else {
+      return observations_[observations_.size() + idx];
+    }
+  }   
 
-  // The most recent observation.
-  const Vector2d& last_point() const {
-    return observations_.back().pt;
-  }
-
+  // Returns point position in world coordinates.
   Vector3d position() const {
     return location_.head<3>() / location_[3];
   }
 
+  // Move the point by 'delta': delta is in world co-ords.
+  void move(const Vector3d& delta) {
+    location_.head<3>() += delta * location_[3];
+  }
+  void rescale(double scale) {
+    location_[3] *= scale;
+    location_.normalize();
+  }
+
+  // Returns the point ID (mostly used for debugging).
   int id() const { return id_; }
 
+  // Flag handling.
   void set_flag(Flags flag) { flags_ |= (1<<flag); }
   void clear_flag(Flags flag) { flags_ &= ~(1<<flag); }
   bool has_flag(Flags flag) const { return flags_ & (1<<flag); }
@@ -168,19 +167,13 @@ struct TrackedPoint {
   bool slam_usable() const { return !has_flag(BAD_LOCATION) && !has_flag(NO_BASELINE) && !has_flag(NO_OBSERVATIONS); }
   bool feature_usable() const { return !has_flag(MISMATCHED) & !has_flag(BAD_LOCATION); }
 
-  // The number of observations of this point.
-  int num_observations() const { return observations_.size(); }
-
-  // The known observations of this point.
-  const vector<Observation>& observations() const { return observations_; }
-  vector<Observation>& observations() { return observations_; }
-
   // Add a new observation of this point.
   void AddObservation(const Observation& obs);
 
   // Clear incorrectly set flags.
   void CheckFlags();
 
+ private:
   Vector4d location_;  // Homogeneous location in world.
   int id_;
   int flags_;
