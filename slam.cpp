@@ -101,7 +101,7 @@ struct FrameDistance {
 
     T dist = (r1.matrix().inverse() * t1 - r2.matrix().inverse() * t2).norm();
     // The error is the difference between the predicted and observed position.
-    residual[0] = 0.001 * (dist - T(distance));
+    residual[0] = 0.00001 * (dist - T(distance));
     return true;
   }
 
@@ -145,6 +145,7 @@ void Slam::SetupConstantBlocks(
 
 bool Slam::SetupProblem(
     LocalMap* map,
+    double range,
     std::function<bool (Frame* frame_idx)> solve_frame_p) {
   // Create residuals for each observation in the bundle adjustment problem. The
   // parameters for points are added automatically.
@@ -152,7 +153,7 @@ bool Slam::SetupProblem(
   frame_set_.clear();
   point_set_.clear();
 
-  auto loss = new ceres::CauchyLoss(.01);
+  auto loss = new ceres::CauchyLoss(range);
   //auto loss = new ceres::HuberLoss(0.02);
 
   // Search for the list of frames to be using. We use the set of
@@ -250,12 +251,14 @@ bool Slam::SetupProblem(
 }
 
 bool Slam::Run(LocalMap* map,
+               double range,
                std::function<bool (Frame* frame_idx)> solve_frame_p) {
   // Create residuals for each observation in the bundle adjustment problem. The
   // parameters for cameras and points are added automatically.
 
   ceres::Solver::Options options;
   if (!SetupProblem(map,
+        range,
         solve_frame_p
         ))
     return false;
@@ -268,9 +271,9 @@ bool Slam::Run(LocalMap* map,
   options.preconditioner_type = ceres::SCHUR_JACOBI;
   //options.minimizer_progress_to_stdout = true;
   //options.use_inner_iterations = true;
-  options.max_num_iterations = 100;
+  options.max_num_iterations = 1000;
   if (!solve_frame_p)
-    options.max_num_iterations = 100;
+    options.max_num_iterations = 1000;
   options.function_tolerance = 1e-7;
   //  if (frames > 15) {
   //  options.use_nonmonotonic_steps = true;

@@ -17,13 +17,29 @@
 
 // Takes frame coordinates and maps to (distorted) pixel coordinates.
 Vector2d Camera::Distort(const Vector2d& px) const {
+  double rd = px.squaredNorm();
+  double xd = px(0);
+  double yd = px(1);
+
+  double xu = xd*(1+k1*rd + k2*rd*rd + k3*rd*rd*rd) + 2*p1*xd*yd + p2*(rd+ 2*xd*xd);
+  double yu = yd*(1+k1*rd + k2*rd*rd + k3*rd*rd*rd) + p1*(rd + 2*yd*yd) + 2*p2*xd*yd;
+
+  return Vector2d(xu, yu).array() * focal.array() + center.array();
+}
+
+// Takes pixel co-ordinates and returns undistorted frame coordinates.
+Vector2d Camera::Undistort(const Vector2d& px) const {
+  Vector2d p = px;
+  p -= center;
+  p.array() /= focal.array();
+
   double x, y;
-  double x0 = x = px[0];
-  double y0 = y = px[1];
+  double x0 = x = p[0];
+  double y0 = y = p[1];
 
   // k1, k2, p1, p2, k3
   // compensate distortion iteratively
-  for( unsigned int j = 0; j < 5; j++ ) {
+  for( unsigned int j = 0; j < 7; j++ ) {
     double r2 = x*x + y*y;
 
     double icdist = 1./(1 + ((k3*r2 + k2)*r2 + k1)*r2);
@@ -33,30 +49,7 @@ Vector2d Camera::Distort(const Vector2d& px) const {
     y = (y0 - deltaY)*icdist;
   }
 
-  // Save undistorted pixel coords:
-  Vector2d result;
-  result[0] = x;
-  result[1] = y;
-  return result.array() * focal.array() + center.array();
-}
-
-// Takes pixel co-ordinates and returns undistorted frame coordinates.
-Vector2d Camera::Undistort(const Vector2d& px) const {
-  // TODO: Actually do the distortion.
-  Vector2d p = px;
-  p -= center;
-  p.array() /= focal.array();
-
-  double rd = p.squaredNorm();
-  double xd = p(0);
-  double yd = p(1);
-
-  double xu = xd*(1+k1*rd + k2*rd*rd + k3*rd*rd*rd) + 2*p1*xd*yd + p2*(rd+ 2*xd*xd);
-  double yu = yd*(1+k1*rd + k2*rd*rd + k3*rd*rd*rd) + p1*(rd + 2*yd*yd) + 2*p2*xd*yd;
-
-  Vector2d result;
-  result << xu, yu;
-  return result;
+  return Vector2d(x, y);
 }
 
 // Project a point in worldspace into Frame pixel space.
@@ -234,20 +227,19 @@ bool LocalMap::Clean(double error_threshold) {
       point->location()[3] = 1e-6;
     }
 
+    double min_err = 1e4;
     for (auto& o : point->observations()) {
       // Is the reproject error too large? if so, maybe disable the obs.
       // Is the reproject error too small to remain disabled? If so, enable.
       double err = o.error.norm() * 1000;
+      min_err = min(err, min_err);
       if (!o.enabled() && err < error_threshold * 0.75) {
         // Hmmm. Observation now has small error. Restore it.
         o.enable();
         changed_points.insert(point.get());
         printf("p %3d, f %3d: Re-enabled point.\n", point->id(), o.frame->id());
         PrintObs(o, *point);
-      } else if (o.enabled() && err > error_threshold) {
-        // If the error exceeds the threshold, add it to the list to possibly mark as bad.
-        errmap.insert({err, {point.get(), &o} });
-      }
+      } 
 
       // Is the point too close to the camera? This is an indication of a badly 
       // tracked point (bundle adjustment is bringing it singular).
@@ -260,6 +252,19 @@ bool LocalMap::Clean(double error_threshold) {
         changed_points.insert(point.get());
         break;
       }
+    }
+
+    auto& obs = point->observations().back();
+    double err = obs.error.norm() * 1000;
+    if (obs.enabled() && obs.error.norm() * 1000 > error_threshold) {
+        // If the error exceeds the threshold, add it to the list to possibly mark as bad.
+        errmap.insert({err, {point.get(), &obs} });
+    }
+
+    if (min_err > 1. && point->num_observations() > 4) {
+      printf("p %3d: Bad feature\n", point->id());
+      point->set_flag(TrackedPoint::Flags::BAD_FEATURE);
+      changed_points.insert(point.get());
     }
   }
   
@@ -307,14 +312,41 @@ void LocalMap::Stats() const {
   Histogram disabled_err_hist(10);
 
   printf("Stats\n");
-  int non_slam(0);
+  int slam(0), no_base(0), no_obs(0), bad_loc(0), bad_feat(0);
   for (auto& point : points) {
-    if (!point->slam_usable()) {
-      ++non_slam;
-      continue;
+    if (point->slam_usable()) {
+      ++slam;
     }
+    if (point->has_flag(TrackedPoint::Flags::NO_BASELINE))
+      ++no_base;
+    if (point->has_flag(TrackedPoint::Flags::NO_OBSERVATIONS))
+      ++no_obs;
+    if (point->has_flag(TrackedPoint::Flags::BAD_FEATURE))
+      ++bad_feat;
+    if (point->has_flag(TrackedPoint::Flags::BAD_LOCATION))
+      ++bad_loc;
+
+    if (point->has_flag(TrackedPoint::Flags::NO_BASELINE))
+      continue;
+
+    printf("p %3d (%d matches) %s%s%s%s%s\n",
+        point->id(), point->num_observations(),
+        point->has_flag(TrackedPoint::Flags::BAD_LOCATION) ? "BAD_LOCATION " : "",
+        point->has_flag(TrackedPoint::Flags::NO_BASELINE) ? "NO_BASELINE " : "",
+        point->has_flag(TrackedPoint::Flags::NO_OBSERVATIONS) ? "NO_OBSERVATIONS " : "",
+        point->has_flag(TrackedPoint::Flags::MISMATCHED) ? "MISMATCHED " : "",
+        point->has_flag(TrackedPoint::Flags::BAD_FEATURE) ? "BAD_FEATURE " : ""
+        );
     for (auto& o : point->observations()) {
       double err = o.error.norm() * 1000;
+      printf("  f %3d: [%c] err %6.4f rad %6.1f [%8.4f, %8.4f] err [%8.4f, %8.4f]\n",
+          o.frame->id(),
+          o.disabled() ? 'D' : ' ',
+          err,
+          o.pt.norm() * 1000,
+          o.pt(0), o.pt(1),
+          o.error(0) * 1000, o.error(1) * 1000
+          );
       if ((err < 50 && o.disabled()) || err > 5.) {
         // Debug dump.
         //PrintObs(o, *point);
@@ -326,7 +358,9 @@ void LocalMap::Stats() const {
       }
     }
   }
-  printf("%d non-slam points from %zd total points\n", non_slam, points.size());
+  printf("%d slam points from %zd total points (%d no base, %d no obs, %d bad loc, %d bad feat\n",
+      slam, points.size(),
+      no_base, no_obs, bad_loc, bad_feat);
 
   cout << "LocalMap Error histogram for enabled obs:\n" << enabled_err_hist.str();
   cout << "LocalMap Error histogram for disabled obs:\n" << disabled_err_hist.str();
@@ -335,15 +369,22 @@ void LocalMap::Stats() const {
     auto f = frames[i].get();
 
     double distance = 0;
+    double ddist = 0;
     auto pos = f->position();
     if (i > 0) {
       distance = (pos - frames[i-1]->position()).norm();
     }
+    if (i > 1) {
+      ddist = (pos - frames[i-2]->position()).norm();
+    }
 
-    printf("Frame %3d : [ % 9.4f, % 9.4f, % 9.4f ] distance %6.4f\n",
+    printf("Frame %3d : [ % 9.4f, % 9.4f, % 9.4f ] distance %8.1f ddist %8.1f fdist %8.1f\n",
         f->id(),
         pos(0), pos(1), pos(2),
-        distance);
+        distance,
+        ddist,
+        f->dist
+        );
   }
 }
 

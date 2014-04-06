@@ -11,13 +11,14 @@ OBJS = slam.o \
        localmap.o \
        planner.o \
        histogram.o \
-       matcher.o
+       matcher.o \
+       gl.o
 
 TESTS = region grid histogram descriptor
 
 LDLIBS = -lceres -lopencv_calib3d -lopencv_highgui -lopencv_video -lopencv_core -lopencv_features2d \
        -lopencv_flann -lopencv_imgproc -lglog -lgomp -lpthread \
-       -lprotobuf -lblas -llapack -lcholmod -lm
+       -lprotobuf -lblas -llapack -lcholmod -lm -lglut -lGLEW -lGL -lgflags
 
 TARGET = slam
 DEPS = make.deps

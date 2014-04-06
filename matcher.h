@@ -22,5 +22,6 @@ class Matcher {
   std::unique_ptr<Data> data_;
 };
 
+const map<int, deque<cv::Mat>>& GetPatches();
 
 #endif

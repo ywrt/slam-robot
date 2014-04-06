@@ -24,6 +24,7 @@ class Slam {
   virtual ~Slam();
 
   bool Run(LocalMap* map,
+           double range,
            std::function<bool (Frame* frame_idx)> solve_frame_p
            );
 
@@ -49,6 +50,7 @@ class Slam {
       std::function<bool (Frame* frame_idx)> solve_frame_p);
   bool SetupProblem(
       LocalMap* map,
+      double range,
       std::function<bool (Frame* frame_idx)> solve_frame_p);
 
   int iterations_;

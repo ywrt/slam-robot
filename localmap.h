@@ -72,6 +72,7 @@ class Frame {
   // The camera intrinsics.
   const Camera* camera() const { return camera_; }
 
+  double dist;
  private:
   int frame_id_;
   Camera* camera_;
@@ -119,6 +120,7 @@ class TrackedPoint {
     NO_BASELINE,  // Insufficient baseline => Not (yet) usable for SLAM.
     NO_OBSERVATIONS,  // Insufficient usable observations => Not (yet) SLAMable.
     MISMATCHED,  // Has multiple recent mis-matched obs => Detach from visual feature.
+    BAD_FEATURE,  // persistent error when fitting. supress from SLAM.
   };
 
   // Pointer to an array of 4 doubles being [X, Y, Z, W],
@@ -164,7 +166,13 @@ class TrackedPoint {
   void clear_flag(Flags flag) { flags_ &= ~(1<<flag); }
   bool has_flag(Flags flag) const { return flags_ & (1<<flag); }
 
-  bool slam_usable() const { return !has_flag(BAD_LOCATION) && !has_flag(NO_BASELINE) && !has_flag(NO_OBSERVATIONS); }
+  bool slam_usable() const {
+    return
+      !has_flag(BAD_LOCATION) &&
+      !has_flag(NO_BASELINE) &&
+      !has_flag(NO_OBSERVATIONS) &&
+      !has_flag(BAD_FEATURE);
+  }
   bool feature_usable() const { return !has_flag(MISMATCHED) & !has_flag(BAD_LOCATION); }
 
   // Add a new observation of this point.

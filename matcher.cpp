@@ -5,6 +5,8 @@
 // 
 #include <vector>
 #include <set>
+#include <map>
+#include <deque>
 #include <opencv2/opencv.hpp>
 #include <glog/logging.h>
 
@@ -15,7 +17,7 @@
 using namespace cv;
 using namespace std;
 
-static const int kWindowSize = 11;
+static const int kWindowSize = 13;
 
 struct Matcher::Data {
   Data() : next_fid(0) {}
@@ -34,7 +36,13 @@ struct Matcher::Data {
   vector<Mat> img2_;
 
   int next_fid;
+
 };
+
+map<int, deque<Mat>> patches;
+const map<int, deque<Mat>>& GetPatches() {
+  return patches;
+}
 
 typedef Matcher::Data::Feature Feature;
 typedef vector<Matcher::Data::Feature> FeatureList;
@@ -374,9 +382,11 @@ bool Matcher::Track(const Mat& img, Frame* frame, LocalMap* map) {
   // have an associated TrackedPoint then add one. Use Frame::Unproject
   // to initialize the world space location of the tracked point.
   for (auto&f : list) {
-    Vector2d fpt;
-    fpt << f.pt.x, f.pt.y;
+    Vector2d fpt(f.pt.x, f.pt.y);
     Vector2d frame_point = frame->camera()->Undistort(fpt);
+    Vector2d test_point = frame->camera()->Distort(frame_point);
+    double test_dist = (fpt- test_point).norm();
+    CHECK_NEAR(test_dist, 0, 1e-5);
 
     if (!f.point) {
       // TODO: Lift constant.
@@ -385,6 +395,12 @@ bool Matcher::Track(const Mat& img, Frame* frame, LocalMap* map) {
     }
 
     f.point->AddObservation({frame_point, frame});
+
+    cv::Mat patch;
+    cv::getRectSubPix(img, Size(kWindowSize, kWindowSize), f.pt, patch);
+    patches[f.id].push_front(patch.clone());
+    if (patches[f.id].size() > 10)
+      patches[f.id].pop_back();
   }
 
   // Move the slide window forward.
