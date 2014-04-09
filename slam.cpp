@@ -63,13 +63,13 @@ struct ReprojectionError {
   bool operator()(
       const T* const frame_rotation,  // eigen quarternion: [x,y,z,w]
       const T* const frame_translation,  // [x,y,z]
-
+      const T* const intrinsics,  // [k1, k2]
       const T* const point,  // homogenous coordinates. [x,y,z,w]
       T* residuals) const {
 
     T projected[2];
 
-    if (!project(frame_rotation, frame_translation, point, projected))
+    if (!project(frame_rotation, frame_translation, intrinsics, point, projected))
       return false;  // Point is behind camera.
 
     // The error is the difference between the predicted and observed position.
@@ -101,11 +101,29 @@ struct FrameDistance {
 
     T dist = (r1.matrix().inverse() * t1 - r2.matrix().inverse() * t2).norm();
     // The error is the difference between the predicted and observed position.
-    residual[0] = 0.00001 * (dist - T(distance));
+    residual[0] = T(0.1) * (dist - T(distance));
     return true;
   }
 
   double distance;
+};
+
+struct CameraStabilization {
+  template <typename T>
+  bool operator()(
+      const T* const intrinsics,  // [k1, k2]
+      T* residual) const {
+
+    residual[0] = T(5.0) * intrinsics[0] * intrinsics[0];
+    residual[1] = T(5.0) * intrinsics[1] * intrinsics[1];
+    residual[2] = T(5.0) * intrinsics[2] * intrinsics[2];
+    residual[3] = T(1.1) * (intrinsics[3] - T(530.1)) * (intrinsics[3] - T(530.));
+    residual[4] = T(1.1) * (intrinsics[4] - T(530.1)) * (intrinsics[4] - T(530.));
+    residual[5] = T(.1) * (intrinsics[5] - T(318.)) * (intrinsics[5] - T(318.));
+    residual[6] = T(.1) * (intrinsics[6] - T(240.)) * (intrinsics[6] - T(240.));
+
+    return true;
+  }
 };
 
 
@@ -141,6 +159,9 @@ void Slam::SetupConstantBlocks(
     problem_->SetParameterBlockConstant(frame->rotation().coeffs().data());
   }
   cout << " to const.\n";
+
+  problem_->SetParameterBlockConstant(map->cameras[0]->k);
+  problem_->SetParameterBlockConstant(map->cameras[1]->k);
 }
 
 bool Slam::SetupProblem(
@@ -204,13 +225,14 @@ bool Slam::SetupProblem(
       // dimensional residual. Internally, the cost function stores the observed
       // image location and compares the reprojection against the observation.
       ceres::CostFunction* cost_function =
-          new ceres::AutoDiffCostFunction<ReprojectionError, 2, 4, 3, 4>(
+          new ceres::AutoDiffCostFunction<ReprojectionError, 2, 4, 3, 7, 4>(
               new ReprojectionError(o.pt(0), o.pt(1)));
 
       problem_->AddResidualBlock(cost_function,
                                 loss /* squared loss */,
                                 o.frame->rotation().coeffs().data(),
                                 o.frame->translation().data(),
+                                o.frame->camera()->k,
                                 point->location().data());
 
       frame_set_.insert(o.frame);
@@ -218,8 +240,9 @@ bool Slam::SetupProblem(
   }
 
   // Constraint the frame-to-frame distances.
+
   if (1 || !solve_frame_p) {
-    auto frame_loss = new ceres::CauchyLoss(.3);
+    auto frame_loss = new ceres::CauchyLoss(15);
     for (unsigned int i = 0; i < map->frames.size() - 1; ++i) {
       auto f1 = map->frames[i].get();
       auto f2 = map->frames[i+1].get();
@@ -241,6 +264,18 @@ bool Slam::SetupProblem(
       
     }
   }
+
+  for (auto& cam : map->cameras) {
+      auto loss = new ceres::CauchyLoss(5);
+      ceres::CostFunction* cost_function =
+          new ceres::AutoDiffCostFunction<CameraStabilization, 7, 7>(
+              new CameraStabilization());
+      problem_->AddResidualBlock(cost_function,
+                                loss /* squared loss */,
+                                cam->k);
+
+  }
+  
 
   if (frame_set_.size() < 2) {
     cout << "Slam aborted due to frame set too small. " << frame_set_.size() << " and point set " << point_set_.size() << "\n";
@@ -272,9 +307,11 @@ bool Slam::Run(LocalMap* map,
   //options.minimizer_progress_to_stdout = true;
   //options.use_inner_iterations = true;
   options.max_num_iterations = 1000;
-  if (!solve_frame_p)
-    options.max_num_iterations = 1000;
   options.function_tolerance = 1e-7;
+  if (!solve_frame_p) {
+    options.max_num_iterations = 1000;
+    options.function_tolerance = 1e-9;
+  }
   //  if (frames > 15) {
   //  options.use_nonmonotonic_steps = true;
   //  }
@@ -311,6 +348,7 @@ double Slam::ReprojectMap(LocalMap* map) {
       bool result = project(
               o.frame->rotation().coeffs().data(),
               o.frame->translation().data(),
+              o.frame->camera()->k,
               point->location().data(),
               o.error.data());
       if (!result)

@@ -8,7 +8,7 @@ struct ProjectPoint {
   bool operator()(
       const T* const frame_rotation,  // [x,y,z,w] (eigen quaternion)
       const T* const frame_translation,  // [x,y,z]
-
+      const T* const intrinsics,  // [k1, k2, k3, fx, fy, cx, cy]
       const T* const point,  // homogenous coordinates. [x,y,z,w]
       T* result) const {
     Eigen::Map<const Eigen::Quaternion<T> > q(frame_rotation);
@@ -18,7 +18,7 @@ struct ProjectPoint {
     // Compute rotated translated point in [x*w, y*w, z*w] space.
     Eigen::Matrix<T, 3, 1> p = q * mpoint + translate * point[3];
 
-    // Don't project points that are effectively behind the camera lens.
+    // Don't project points that are effectively behind the intrinsics lens.
     if (p[2] < 0.001 * point[3])
       return false;
 
@@ -27,6 +27,17 @@ struct ProjectPoint {
     // (p[0]/point[3]) / (p[2]/point[3])
     T xp = p[0] / p[2];
     T yp = p[1] / p[2];
+
+    T r2 = xp*xp + yp*yp;
+    T distort = T(1.0) + r2 * (intrinsics[0] + r2 * (intrinsics[1] + r2 * intrinsics[2]));
+    xp *= distort;
+    yp *= distort;
+
+    xp *= intrinsics[3];
+    yp *= intrinsics[4];
+
+    xp += intrinsics[5];
+    yp += intrinsics[6];
 
     // Compute final projected point position.
     result[0] = xp;

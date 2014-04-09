@@ -147,7 +147,7 @@ FeatureList RunTrack(const ImageStack& prev, const ImageStack& img, const Featur
   vector<unsigned char> status1(in.size());
   vector<float> err1(in.size());
   calcOpticalFlowPyrLK(prev, img, in, out, status1, err1, Size(kWindowSize, kWindowSize), 5,
-      TermCriteria(TermCriteria::COUNT+TermCriteria::EPS, 30, 0.01),
+      TermCriteria(TermCriteria::COUNT+TermCriteria::EPS, 40, 0.001),
       OPTFLOW_USE_INITIAL_FLOW | OPTFLOW_LK_GET_MIN_EIGENVALS,
       1e-3);
 
@@ -155,21 +155,22 @@ FeatureList RunTrack(const ImageStack& prev, const ImageStack& img, const Featur
   vector<unsigned char> status2(in.size());
   vector<float> err2(in.size());
   calcOpticalFlowPyrLK(img, prev, out, in1, status2, err2, Size(kWindowSize, kWindowSize), 5,
-      TermCriteria(TermCriteria::COUNT+TermCriteria::EPS, 30, 0.01),
+      TermCriteria(TermCriteria::COUNT+TermCriteria::EPS, 40, 0.001),
       0,
       1e-3);
 
   FeatureList result;
   int lost(0), fail(0), fail_score(0), good(0), oob(0);
   Size img_size = img[0].size();
-  Rect bounds(Point(1, 1), Size(img_size.width - 2, img_size.height - 2));
+  const int margin = kWindowSize / 2 + 1;
+  Rect bounds(Point(margin, margin), Size(img_size.width - margin, img_size.height - margin));
   for (unsigned int i = 0; i < status1.size(); ++i) {
     if (!status1[i] || !status2[i]) {
       ++lost;
       continue;
     }
     // TODO: lift constant.
-    if (norm(in[i] - in1[i]) > 1) {
+    if (norm(in[i] - in1[i]) > 0.5) {
       ++fail;
       continue;
     }
@@ -390,7 +391,7 @@ bool Matcher::Track(const Mat& img, Frame* frame, LocalMap* map) {
 
     if (!f.point) {
       // TODO: Lift constant.
-      auto location = frame->Unproject(frame_point, 1500);
+      auto location = frame->Unproject(frame_point / 530., 1500);
       f.point = map->AddPoint(f.id, location);
     }
 
@@ -399,7 +400,7 @@ bool Matcher::Track(const Mat& img, Frame* frame, LocalMap* map) {
     cv::Mat patch;
     cv::getRectSubPix(img, Size(kWindowSize, kWindowSize), f.pt, patch);
     patches[f.id].push_front(patch.clone());
-    if (patches[f.id].size() > 10)
+    if (patches[f.id].size() > 30)
       patches[f.id].pop_back();
   }
 

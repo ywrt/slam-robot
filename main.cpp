@@ -10,6 +10,7 @@
 // 11. Stop processing new frames when stationary.
 // 12. Add motion model.
 // 13. Extract patches and display in GL.
+// 14. Optimize camera parameters.
 //
 #include <stdio.h>
 #include <stdlib.h>
@@ -258,7 +259,7 @@ void CallBackFunc(int event, int x, int y, int flags, void* userdata) {
     for (const auto& point : lmap->points) {
       const auto& obs = point->observation(-1);
       double n = (obs.pt - pt).norm();
-      if (n < 1e-1 && n < min_dist) {
+      if (n < 50 && n < min_dist) {
         p = point.get();
         min_dist = n;
       }
@@ -309,6 +310,14 @@ void CallBackFunc(int event, int x, int y, int flags, void* userdata) {
       m(Rect(center(0),center(1), 3, 3)) = Scalar(0,0,255);
     } else {
     }
+    line(m,
+        Point2f(m.size().width / 2., m.size().height / 2. - 5),
+        Point2f(m.size().width / 2., m.size().height / 2. + 5),
+        Scalar(0,0,128), 1, 8);
+    line(m,
+        Point2f(m.size().width / 2. - 5, m.size().height / 2.),
+        Point2f(m.size().width / 2. + 5, m.size().height / 2.),
+        Scalar(0,0,128), 1, 8);
 
     if ((cursor.x + m.size().width) > rout.size().width) {
       cursor.x = 0;
@@ -326,9 +335,31 @@ void CallBackFunc(int event, int x, int y, int flags, void* userdata) {
       p->position()[2]
       );
 
-  cv::putText(rout, buff, Point2f(0, 200), FONT_HERSHEY_PLAIN, .7, Scalar(128,255,0));
+  cv::putText(rout, buff, Point2f(0, 400), FONT_HERSHEY_PLAIN, .7, Scalar(128,255,0));
 
   cv::imshow("Right", rout);
+}
+
+void InitCameras(Camera* left, Camera* right) {
+  //left->center << 320, 240; // 287, 228;
+  //left->center << 312.14, 233.93;
+  //left->focal << 530.1, 530.2;
+  for (int i = 0; i < 7; ++i) {
+    left->k[i] = left->kinit[i];
+    right->k[i] = right->kinit[i];
+  }
+
+  //right->center << 320, 240; // 312.14, 233.93;
+  //right->center << 287, 228;
+  //right->focal << 525.76, 526.16;
+  //right->focal << 530.1, 530.2;
+
+  //cam_model->k1 = -4e-2;
+  //cam_model->k1 = -1.091669e-01;
+  //cam_model->k2 = 2.201787e-01;
+  //cam_model->p1 = -1.866669e-03;
+  //cam_model->p2 = 1.632135e-04;
+  //cam_model->k3 = 0.000000e+00;
 }
 
 
@@ -378,29 +409,17 @@ int main(int argc, char*argv[]) {
   // fx=525.75698
   // fy=526.16432
   // dist=[-1.091669e-01 2.201787e-01 -1.866669e-03 1.632135e-04 0.000000e+00]
-  map.AddCamera();
-  map.AddCamera();
-  Camera* cam_model = map.cameras[1].get();
-  cam_model->center << 320, 240; // 287, 228;
-  cam_model->center << 287, 228;
-  cam_model->focal << 530.1, 530.2;
-  cam_model->k1 = -5e-2; // -1.442760e-01;
-  //cam_model->k2 = 3.246676e-01;
-  //cam_model->p1 = 1.588004e-04;
-  //cam_model->p2 = -1.096403e-03;
-  //cam_model->k3 = 0.000000e+00;
 
-  cam_model = map.cameras[0].get();
-  cam_model->center << 320, 240; // 312.14, 233.93;
-  cam_model->center << 312.14, 233.93;
-  cam_model->focal << 525.76, 526.16;
-  cam_model->k1 = -4e-2;
-  //cam_model->k1 = -1.091669e-01;
-  //cam_model->k2 = 2.201787e-01;
-  //cam_model->p1 = -1.866669e-03;
-  //cam_model->p2 = 1.632135e-04;
-  //cam_model->k3 = 0.000000e+00;
+  map.AddCamera(new Camera{
+      -0.10665,  0.20000,  0.07195, 529.35050, 529.70380, 322.07373, 240.90333
+      });
+  map.AddCamera(new Camera{
+      -0.12031,  0.20155,  0.06873, 531.77238, 530.43886, 299.85292, 237.38257
+      });
 
+  //map.AddCamera(new Camera{-0.001, 0.0081, 0, 529.5, 530.7, 321.0, 242.5});
+  //map.AddCamera(new Camera{-0.003, 0.0067, 0, 530.6, 529.3, 314.6, 237.5});
+  InitCameras(map.cameras[0].get(), map.cameras[1].get());
   // A feature tracker. Holds internal state of the previous
   // images.
   Matcher tracking;
@@ -469,7 +488,7 @@ int main(int argc, char*argv[]) {
       // Just solve the current frame pose while holding all other frame
       // poses constant.
       if (!slam.Run(&map,
-            4 * kErrorThreshold * 1e-3,
+            10.,
             [=](Frame* frame) -> bool {
               return frame->id() == frame_id;
             })) {
@@ -477,16 +496,16 @@ int main(int argc, char*argv[]) {
       }
       slam.ReprojectMap(&map);
     } while (!map.Clean(kErrorThreshold * 4));
-
     if (frame_id < 10 || (frame_id % 5) == 0) {
       // Then solve all frame poses.
       //slam.Run(&map, nullptr);
       // Solve the last 10 frame poses.
-      slam.Run(&map,
-          kErrorThreshold * 1e-5,
+      if (!slam.Run(&map,
+          2.,
           [=](Frame* frame)-> bool {
             return frame->id() >= (frame_id - 10);
-          });
+          }))
+        break;  // Failed to run SLAM.
       map.Clean(kErrorThreshold);
     }
 
@@ -495,9 +514,7 @@ int main(int argc, char*argv[]) {
     map.Normalize();
     double err2 = slam.ReprojectMap(&map);
 
-    CHECK_NEAR(err1, err2, 1e-10);
-
-
+    CHECK_NEAR(err1, err2, 1e-1);
 
     Mat blend;
     addWeighted(prev, 0.5, color, 0.5, 0, blend);
@@ -522,17 +539,64 @@ int main(int argc, char*argv[]) {
     prev = color;
     //if (frame_num >= 200)
     //  cv::waitKey(0);
-    if ((frame_id % 5) == 0) {
+    if ((frame_id % 100) == 0) {
       // Print some debugging stats to STDOUT.
- //     map.Stats();
-      cv::waitKey(50);
+      slam.Run(&map, 10, [](Frame*)->bool { return true; });
+      slam.Run(&map, 5, [](Frame*)->bool { return true; });
+      slam.Run(&map, 2, [](Frame*)->bool { return true; });
+      slam.Run(&map, 1, [](Frame*)->bool { return true; });
+      slam.Run(&map, 0.7, [](Frame*)->bool { return true; });
+      map.Stats();
+
+      InitCameras(map.cameras[0].get(), map.cameras[1].get());
+      slam.Run(&map, 1, nullptr);
+      printf("cam0: k %8.5f %8.5f %8.5f f [%8.5f, %8.5f] c [%8.5f, %8.5f]\n",
+          map.cameras[0]->k[0],
+          map.cameras[0]->k[1],
+          map.cameras[0]->k[2],
+          map.cameras[0]->k[3],
+          map.cameras[0]->k[4],
+          map.cameras[0]->k[5],
+          map.cameras[0]->k[6]
+          );
+      printf("cam1: k %8.5f %8.5f %8.5f f [%8.5f, %8.5f] c [%8.5f, %8.5f]\n",
+          map.cameras[1]->k[0],
+          map.cameras[1]->k[1],
+          map.cameras[1]->k[2],
+          map.cameras[1]->k[3],
+          map.cameras[1]->k[4],
+          map.cameras[1]->k[5],
+          map.cameras[1]->k[6]
+          );
+       printf(" %8.5f, %8.5f, %8.5f, %8.5f, %8.5f, %8.5f, %8.5f\n",
+          map.cameras[0]->k[0],
+          map.cameras[0]->k[1],
+          map.cameras[0]->k[2],
+          map.cameras[0]->k[3],
+          map.cameras[0]->k[4],
+          map.cameras[0]->k[5],
+          map.cameras[0]->k[6]
+          );
+       printf(" %8.5f, %8.5f, %8.5f, %8.5f, %8.5f, %8.5f, %8.5f\n",
+          map.cameras[1]->k[0],
+          map.cameras[1]->k[1],
+          map.cameras[1]->k[2],
+          map.cameras[1]->k[3],
+          map.cameras[1]->k[4],
+          map.cameras[1]->k[5],
+          map.cameras[1]->k[6]
+          );
+      slam.ReprojectMap(&map);
+      //InitCameras(map.cameras[0].get(), map.cameras[1].get());
+
+      cv::waitKey(0);
     }
 
     if (frame_id == 400) break;
   }
 
-  map.Stats();
-  slam.Run(&map, 1e-5, nullptr);
+  //map.Stats();
+  //slam.Run(&map, 1, nullptr);
 
   FILE* f = fopen("/tmp/z", "w");
   DumpMap(&map, f);

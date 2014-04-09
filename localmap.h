@@ -13,6 +13,7 @@
 #include <memory>
 #include <vector>
 #include <string>
+#include <array>
 
 #include <eigen3/Eigen/Eigen>
 
@@ -23,20 +24,14 @@ class TrackedPoint;
 
 // Camera intrinsics.
 struct Camera {
-  Camera() : center{0,0}, focal{1,1}, k1{0}, k2{0}, p1{0},p2{0},k3{0} {}
-
   // Takes frame coordinates and maps to (distorted) pixel coordinates.
   Vector2d Distort(const Vector2d& px) const;
 
   // Takes pixel co-ordinates and returns undistorted frame coordinates.
   Vector2d Undistort(const Vector2d& px) const;
 
-  Vector2d center;
-  Vector2d focal;
-
-  double k1, k2;
-  double p1, p2;
-  double k3;
+  double kinit[7];  // k1, k2, k3, fx, fy, cx, cy
+  double k[7];  // k1, k2, k3, fx, fy, cx, cy
 };
 
 // A frame taken by a specific camera in a specific pose.
@@ -71,6 +66,7 @@ class Frame {
 
   // The camera intrinsics.
   const Camera* camera() const { return camera_; }
+  Camera* camera() { return camera_; }
 
   double dist;
  private:
@@ -197,7 +193,7 @@ struct LocalMap {
   Frame* AddFrame(Camera* cam);
 
   // Add a new camera to the map
-  Camera* AddCamera();
+  void AddCamera(Camera* cam);
 
   Frame* frame(int frame_idx) { return frames[frame_idx].get(); }
   const Frame* frame(int frame_idx) const { return frames[frame_idx].get(); }
