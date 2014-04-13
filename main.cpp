@@ -471,7 +471,7 @@ int main(int argc, char*argv[]) {
 
     // Track features against the new image, and fill them into
     // the LocalMap.
-    tracking.Track(grey, frame_ptr, &map);
+    tracking.Track(grey, frame_ptr, camera, &map);
 
     // If there's not a previous image, then we can't run comparisons
     // against it: Just skip to getting another image.
@@ -537,8 +537,8 @@ int main(int argc, char*argv[]) {
       left_cam = map.cameras[0].get();
     }
     prev = color;
-    //if (frame_num >= 200)
-    //  cv::waitKey(0);
+    if (!(frame_id% 5))
+      cv::waitKey(0);
     if ((frame_id % 100) == 0) {
       // Print some debugging stats to STDOUT.
       slam.Run(&map, 10, [](Frame*)->bool { return true; });

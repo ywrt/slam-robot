@@ -24,19 +24,17 @@ struct Matcher::Data {
 
   struct Feature {
     Point2f pt;
-    float response;
-    int id;
+    Point2f base_pt;
     TrackedPoint* point;
+
+    int id;
   };
 
-  vector<Feature> f1_;
-  vector<Feature> f2_;
-
-  vector<Mat> img1_;
-  vector<Mat> img2_;
+  // vector of feature lists, indexed by camera id.
+  map<int, vector<Feature>> features;
+  map<int, vector<Mat>> images;
 
   int next_fid;
-
 };
 
 map<int, deque<Mat>> patches;
@@ -139,7 +137,7 @@ FeatureList RunTrack(const ImageStack& prev, const ImageStack& img, const Featur
 
   vector<Point2f> in, in1, out;
   for (const auto& f : list) {
-    in.push_back(f.pt);
+    in.push_back(f.base_pt);
     out.push_back(f.pt);
   }
 
@@ -193,7 +191,6 @@ FeatureList RunTrack(const ImageStack& prev, const ImageStack& img, const Featur
 
     result.push_back(list[i]);
     result.back().pt = out[i];
-    result.back().response = err1[i];
     ++good;
   }
 
@@ -247,7 +244,6 @@ void AddNewFeatures(const Mat& img, FeatureList* list, FUNC get_next_id) {
 
     Feature f;
     f.pt = c;
-    f.response = 0;
     f.id = get_next_id();
     f.point = nullptr;
     list->push_back(f);
@@ -346,7 +342,7 @@ FeatureList FilterBad(const FeatureList& list) {
 // cameras).
 //
 // Adds matched features to the localmap.
-bool Matcher::Track(const Mat& img, Frame* frame, LocalMap* map) {
+bool Matcher::Track(const Mat& img, Frame* frame, int camera, LocalMap* map) {
   auto&d = *data_;
 
   CHECK_NE(img.size().width, 0);
@@ -354,20 +350,22 @@ bool Matcher::Track(const Mat& img, Frame* frame, LocalMap* map) {
   CHECK_NOTNULL(map);
   CHECK_NOTNULL(frame);
 
+  bool new_keyframe = false;
+
   // Build an image pyamid for the new image.
   vector<Mat> pyr;
   buildOpticalFlowPyramid(img, pyr, Size(kWindowSize, kWindowSize), 5, true); 
 
   FeatureList list;
-  // Track against the previous image
+  // Track against the previous cross-camera image
   // TODO: Lift out constants.
-  if (d.img1_.size()) {
-    list = RunTrack(d.img1_, pyr, FilterBad(d.f1_), 1000);
+  if (d.images.count(camera ^ 1)) {
+    list = RunTrack(d.images[camera ^ 1], pyr, FilterBad(d.features[camera ^ 1]), 1000);
   }
 
-  // Track against the previous previous image
-  if (d.img2_.size()) {
-    auto list2 = RunTrack(d.img2_, pyr, FilterBad(d.f2_), 1000);
+  // Track against the previous same-camera image
+  if (d.images.count(camera)) {
+    auto list2 = RunTrack(d.images[camera], pyr, FilterBad(d.features[camera]), 1000);
     list = MergeLists(list2, list, 5);
   }
 
@@ -377,6 +375,8 @@ bool Matcher::Track(const Mat& img, Frame* frame, LocalMap* map) {
   // TODO: Lift out constant.
   if (list.size() < 40) {
     AddNewFeatures(img, &list, [&d]() -> int { return d.next_fid++; });
+    new_keyframe = true;
+    printf("Adding new keyframe for camera %d on frame %d\n", camera, frame->id());
   }
 
   // Add the new observations to the LocalMap. If this feature doesn't
@@ -386,7 +386,7 @@ bool Matcher::Track(const Mat& img, Frame* frame, LocalMap* map) {
     Vector2d fpt(f.pt.x, f.pt.y);
     Vector2d frame_point = frame->camera()->Undistort(fpt);
     Vector2d test_point = frame->camera()->Distort(frame_point);
-    double test_dist = (fpt- test_point).norm();
+    double test_dist = (fpt - test_point).norm();
     CHECK_NEAR(test_dist, 0, 1e-5);
 
     if (!f.point) {
@@ -404,11 +404,14 @@ bool Matcher::Track(const Mat& img, Frame* frame, LocalMap* map) {
       patches[f.id].pop_back();
   }
 
-  // Move the slide window forward.
-  d.img2_ = move(d.img1_);
-  d.f2_ = move(d.f1_);
+  if (new_keyframe) {
+    // We changing the reference image, so update the reference point.
+    for (auto& f : list) {
+      f.base_pt = f.pt;
+    }
+    d.images[camera] = move(pyr);
+    d.features[camera] = move(list);
+  }
 
-  d.img1_ = move(pyr);
-  d.f1_ = move(list);
   return true;
 }

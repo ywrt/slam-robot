@@ -16,7 +16,7 @@ class Matcher {
 
   struct Data;
 
-  bool Track(const cv::Mat& img, Frame* frame, LocalMap* map);
+  bool Track(const cv::Mat& img, Frame* frame, int camera, LocalMap* map);
 
  private:
   std::unique_ptr<Data> data_;
