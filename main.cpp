@@ -31,6 +31,8 @@ using namespace std;
 using namespace cv;
 using namespace Eigen;
 
+int debug = 0;
+
 void DumpMap(LocalMap* map, FILE* out) {
   for (auto& f : map->frames) {
     if ((f->id() & 1) != 0) continue;
@@ -85,33 +87,6 @@ void DrawText(cv::Mat* out, const Camera& cam, const string& str, const Vector2d
   Point2f a(p(0), p(1));
   putText(*out, str, a, FONT_HERSHEY_PLAIN, 0.7, Scalar(0,0,255)); 
 }
-
-// Wrapper for VideoCapture. Can open cameras directly or
-// a video file.
-class Eye {
- public:
-  Eye(int eye) {
-    cam_.open(eye);
-    cam_.set(CV_CAP_PROP_FRAME_WIDTH, 640);
-    cam_.set(CV_CAP_PROP_FRAME_HEIGHT, 480);
-    cam_.set(CV_CAP_PROP_FPS, 15);
-  }
-  Eye(char* filename) {
-    cam_.open(filename);
-  }
-
-  void grab() { cam_.grab(); }
-
-  void proc() {
-    cam_.retrieve(frame_, 0);
-    //cv::resize(frame_, frame_, cv::Size(frame_.size().width / 2, frame_.size().height / 2));
-    cvtColor(frame_, grey_, CV_RGB2GRAY);
-  }
-
- public:
-  VideoCapture cam_;
-  Mat frame_, grey_;
-};
 
 // Interface: A source of images. Typically a camera or
 // a video file.
@@ -233,7 +208,11 @@ Camera* left_cam;
 LocalMap* lmap;
 int point_id = 0;
 
+bool have_image = false;
+
 void CallBackFunc(int event, int x, int y, int flags, void* userdata) {
+  if (!have_image)
+    return;
   TrackedPoint* p = nullptr;
 
   if  ( event == EVENT_LBUTTONDOWN ) {
@@ -301,8 +280,7 @@ void CallBackFunc(int event, int x, int y, int flags, void* userdata) {
     center += Vector2d(7.5, 7.5);
     center *= scale;
 
-    Mat m;
-    cvtColor(morig.clone(), m, CV_GRAY2RGB);
+    Mat m = morig.clone();
     resize(m, m, m.size() * scale, 0, 0, INTER_NEAREST);
 
     if (center(0) > 0 && center(1) > 0 &&
@@ -432,6 +410,7 @@ int main(int argc, char*argv[]) {
   Mat prev;
   int camera = 1;
   while (1) {
+    have_image = false;
     camera ^= 1;
 
     Frame* frame_ptr = map.AddFrame(map.cameras[camera].get());
@@ -439,16 +418,14 @@ int main(int argc, char*argv[]) {
     int frame_id = frame_ptr->id();
     printf("\n============== Frame %d\n", frame_id);
 
+    debug = (frame_id > 9);
     // Fetch the next image.
-    Mat color, grey;
+    Mat color;
     if (!cam->GetObservation(camera, &color))
       break;
 
     // Blur it slightly: stddev=1
     //GaussianBlur(color, color, Size(5, 5), 1, 1);
-
-    // Make a grey-scale version of it.
-    cvtColor(color, grey, CV_RGB2GRAY);
 
     // Add a new frame to the LocalMap (and with it, a new pose).
     // Compute the an initial pose estimate. We assume two cameras separated
@@ -471,7 +448,7 @@ int main(int argc, char*argv[]) {
 
     // Track features against the new image, and fill them into
     // the LocalMap.
-    tracking.Track(grey, frame_ptr, camera, &map);
+    tracking.Track(color, frame_ptr, camera, &map);
 
     // If there's not a previous image, then we can't run comparisons
     // against it: Just skip to getting another image.
@@ -537,7 +514,9 @@ int main(int argc, char*argv[]) {
       left_cam = map.cameras[0].get();
     }
     prev = color;
-    if (!(frame_id% 5))
+
+    have_image = true;
+    if (1 || !(frame_id% 5))
       cv::waitKey(0);
     if ((frame_id % 100) == 0) {
       // Print some debugging stats to STDOUT.

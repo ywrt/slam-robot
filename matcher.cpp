@@ -11,13 +11,17 @@
 #include <glog/logging.h>
 
 #include "localmap.h"
+#include "klt.h"
 
 #include "matcher.h"
+
 
 using namespace cv;
 using namespace std;
 
 static const int kWindowSize = 13;
+
+extern int debug;
 
 struct Matcher::Data {
   Data() : next_fid(0) {}
@@ -33,11 +37,17 @@ struct Matcher::Data {
   // vector of feature lists, indexed by camera id.
   map<int, vector<Feature>> features;
   map<int, vector<Mat>> images;
+  map<int, Mat> originals;
 
   int next_fid;
 };
 
+namespace {
+
 map<int, deque<Mat>> patches;
+
+} // namespace
+
 const map<int, deque<Mat>>& GetPatches() {
   return patches;
 }
@@ -79,12 +89,12 @@ void VisitPairs(
 void ShowMatch(const Mat& a_img, const Mat& b_img, const Point2f& a, const Point2f& b, const Size& window) {
   cv::Mat patch_a;
   cv::getRectSubPix(a_img, window, a, patch_a);
-  patch_a = patch_a + (cv::Scalar::all(128) - cv::mean(patch_a));
+//  patch_a = patch_a + (cv::Scalar::all(128) - cv::mean(patch_a));
 //  normalize(patch_a, patch_a, 128 * window.width * window.height, NORM_L1);
 
   cv::Mat patch_b;
   cv::getRectSubPix(b_img, window, b, patch_b);
-  patch_b = patch_b + (cv::Scalar::all(128) - cv::mean(patch_b));
+//  patch_b = patch_b + (cv::Scalar::all(128) - cv::mean(patch_b));
 //  normalize(patch_b, patch_b, 128 * window.width * window.height, NORM_L1);
 
   cv::Mat diff;
@@ -110,6 +120,51 @@ void ShowMatch(const Mat& a_img, const Mat& b_img, const Point2f& a, const Point
 }
 
 
+void ShowPatches(
+    const vector<KLTTracker::Patch>& p1,
+    const vector<KLTTracker::Patch>& p2,
+    const vector<KLTTracker::Patch>& p3) {
+  const int scale = 15;
+
+  cv::Size s = p1[0].size;
+
+  Mat out(Size((s.width + 2) * 3, (s.height + 2) * p1.size()), CV_32F);
+  vector<const vector<KLTTracker::Patch>*> pv;
+  pv.push_back(&p1);
+  pv.push_back(&p2);
+  pv.push_back(&p3);
+
+  out = Scalar(0,0,0);
+
+  for (int x = 0; x < 3; ++x) {
+    const auto& p = *pv[x];
+    for (unsigned int y = 0; y < p.size(); ++y) {
+      const auto& patch = p[y];
+      cv::Mat(patch.size.width, patch.size.height, CV_32F, (float*) &(patch.data[0]), patch.size.width * sizeof(float)).
+          copyTo(out(Rect(x * (s.width + 1), y * (s.height + 1), s.width, s.height)));
+    }
+  }
+
+  for (int i = 0; i < p1[0].len; ++i) {
+    printf("%8.3f ", p1[0].data[i]);
+  }
+  printf("\n");
+
+  for (int i = 0; i < p2[0].len; ++i) {
+    printf("%8.3f ", p1[0].gradx[i]);
+  }
+  printf("\n");
+
+  Mat out1;
+  resize(out, out1, out.size() * scale, 0, 0, INTER_NEAREST);
+
+  cv::namedWindow("Diff", CV_WINDOW_AUTOSIZE );// Create a window for display.
+  cv::moveWindow("Diff", 1440, 1500);
+  cv::imshow("Diff", out1);
+  cv::waitKey(0);
+}
+
+
 // Compute score for a patch.
 double ScoreMatch(const Mat& a_img, const Mat& b_img, const Point2f& a, const Point2f& b, const Size& window) {
   cv::Mat patch_a;
@@ -129,6 +184,64 @@ double ScoreMatch(const Mat& a_img, const Mat& b_img, const Point2f& a, const Po
   double m = cv::norm(patch_a, patch_b);
 
   return m;
+}
+
+FeatureList RunTrack1(const Mat& prev, const Mat& img, const FeatureList& list, int max_error) {
+  KLTTracker tracker(Size(kWindowSize, kWindowSize));
+
+  auto stack1 = tracker.MakePyramid(prev, 5);
+  auto stack2 = tracker.MakePyramid(img, 5);
+
+  const int margin = kWindowSize / 2 + 1;
+  Size img_size = img.size();
+  Rect bounds(Point(margin, margin), Size(img_size.width - margin, img_size.height - margin));
+  FeatureList result;
+  int lost(0), fail(0), fail_score(0), good(0), oob(0);
+  int iters = 80;
+  //if (debug) iters = 1;
+  for (auto& f : list) {
+    Point2f np = f.pt;
+    auto patches1 = tracker.GetPatches(stack1, f.base_pt);
+    auto status1 = tracker.TrackFeature(stack2, patches1, 0.00001, iters, &np);
+    if (status1) {
+      ++lost;
+      continue;
+    }
+
+    Point2f op = np;
+    auto patches2 = tracker.GetPatches(stack2, np);
+    auto status2 = tracker.TrackFeature(stack1, patches2, 0.00001, iters, &op);
+    if (status2) {
+      ++lost;
+      continue;
+    }
+
+    auto patches3 = tracker.GetPatches(stack1, op);
+
+    printf(" = [%7.2f, %7.2f] => [%7.2f, %7.2f] => [%7.2f, %7.2f]\n", f.base_pt.x, f.base_pt.y, np.x, np.y, op.x, op.y);
+    if (debug)
+      ShowPatches(patches1, patches3, patches2);
+
+    if (norm(op - f.base_pt) > 0.5) {
+      ++fail;
+      continue;
+    }
+
+    if (!bounds.contains(np)) {
+      ++oob;
+      continue;
+    }
+
+    result.push_back(f);
+    result.back().pt = np;
+    ++good;
+  }
+
+  cout << "Track1: Lost " << lost << ", Fail " << fail
+    << ", Bad score " << fail_score
+    << ", OOB " << oob
+    << ", Good " << good << "\n";
+  return result;
 }
 
 FeatureList RunTrack(const ImageStack& prev, const ImageStack& img, const FeatureList& list, int max_error) {
@@ -354,18 +467,23 @@ bool Matcher::Track(const Mat& img, Frame* frame, int camera, LocalMap* map) {
 
   // Build an image pyamid for the new image.
   vector<Mat> pyr;
-  buildOpticalFlowPyramid(img, pyr, Size(kWindowSize, kWindowSize), 5, true); 
+  Mat grey;
+  cvtColor(img, grey, CV_RGB2GRAY);
+  buildOpticalFlowPyramid(grey, pyr, Size(kWindowSize, kWindowSize), 5, true); 
 
   FeatureList list;
   // Track against the previous cross-camera image
   // TODO: Lift out constants.
   if (d.images.count(camera ^ 1)) {
-    list = RunTrack(d.images[camera ^ 1], pyr, FilterBad(d.features[camera ^ 1]), 1000);
+    //list = RunTrack(d.images[camera ^ 1], pyr, FilterBad(d.features[camera ^ 1]), 1000);
+
+    list = RunTrack1(d.originals[camera ^ 1], img, FilterBad(d.features[camera ^ 1]), 1000);
   }
 
   // Track against the previous same-camera image
   if (d.images.count(camera)) {
-    auto list2 = RunTrack(d.images[camera], pyr, FilterBad(d.features[camera]), 1000);
+    //auto list2 = RunTrack(d.images[camera], pyr, FilterBad(d.features[camera]), 1000);
+    auto list2 = RunTrack1(d.originals[camera], img, FilterBad(d.features[camera]), 1000);
     list = MergeLists(list2, list, 5);
   }
 
@@ -374,7 +492,7 @@ bool Matcher::Track(const Mat& img, Frame* frame, int camera, LocalMap* map) {
   // lambda to generate feature IDs.
   // TODO: Lift out constant.
   if (list.size() < 40) {
-    AddNewFeatures(img, &list, [&d]() -> int { return d.next_fid++; });
+    AddNewFeatures(grey, &list, [&d]() -> int { return d.next_fid++; });
     new_keyframe = true;
     printf("Adding new keyframe for camera %d on frame %d\n", camera, frame->id());
   }
@@ -411,6 +529,7 @@ bool Matcher::Track(const Mat& img, Frame* frame, int camera, LocalMap* map) {
     }
     d.images[camera] = move(pyr);
     d.features[camera] = move(list);
+    d.originals[camera] = img.clone();
   }
 
   return true;
