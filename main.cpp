@@ -418,7 +418,8 @@ int main(int argc, char*argv[]) {
     int frame_id = frame_ptr->id();
     printf("\n============== Frame %d\n", frame_id);
 
-    debug = (frame_id > 9);
+    //debug = (frame_id > 9);
+    //debug = true;
     // Fetch the next image.
     Mat color;
     if (!cam->GetObservation(camera, &color))
@@ -516,7 +517,7 @@ int main(int argc, char*argv[]) {
     prev = color;
 
     have_image = true;
-    if (1 || !(frame_id% 5))
+    if (!(frame_id% 10))
       cv::waitKey(0);
     if ((frame_id % 100) == 0) {
       // Print some debugging stats to STDOUT.

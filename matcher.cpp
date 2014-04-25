@@ -11,7 +11,7 @@
 #include <glog/logging.h>
 
 #include "localmap.h"
-#include "klt.h"
+#include "hessian.h"
 
 #include "matcher.h"
 
@@ -119,17 +119,17 @@ void ShowMatch(const Mat& a_img, const Mat& b_img, const Point2f& a, const Point
   cv::waitKey(0);
 }
 
-
+template<typename T>
 void ShowPatches(
-    const vector<KLTTracker::Patch>& p1,
-    const vector<KLTTracker::Patch>& p2,
-    const vector<KLTTracker::Patch>& p3) {
+    const vector<T>& p1,
+    const vector<T>& p2,
+    const vector<T>& p3) {
   const int scale = 15;
 
   cv::Size s = p1[0].size;
 
   Mat out(Size((s.width + 2) * 3, (s.height + 2) * p1.size()), CV_32F);
-  vector<const vector<KLTTracker::Patch>*> pv;
+  vector<const vector<T>*> pv;
   pv.push_back(&p1);
   pv.push_back(&p2);
   pv.push_back(&p3);
@@ -144,16 +144,6 @@ void ShowPatches(
           copyTo(out(Rect(x * (s.width + 1), y * (s.height + 1), s.width, s.height)));
     }
   }
-
-  for (int i = 0; i < p1[0].len; ++i) {
-    printf("%8.3f ", p1[0].data[i]);
-  }
-  printf("\n");
-
-  for (int i = 0; i < p2[0].len; ++i) {
-    printf("%8.3f ", p1[0].gradx[i]);
-  }
-  printf("\n");
 
   Mat out1;
   resize(out, out1, out.size() * scale, 0, 0, INTER_NEAREST);
@@ -187,22 +177,27 @@ double ScoreMatch(const Mat& a_img, const Mat& b_img, const Point2f& a, const Po
 }
 
 FeatureList RunTrack1(const Mat& prev, const Mat& img, const FeatureList& list, int max_error) {
-  KLTTracker tracker(Size(kWindowSize, kWindowSize));
+  //KLTTracker tracker(Size(kWindowSize, kWindowSize));
+  //BruteTracker tracker(Size(kWindowSize, kWindowSize));
+  HessianTracker tracker(Size(kWindowSize, kWindowSize));
 
-  auto stack1 = tracker.MakePyramid(prev, 5);
-  auto stack2 = tracker.MakePyramid(img, 5);
+  auto stack1 = tracker.MakePyramid(prev, 6);
+  auto stack2 = tracker.MakePyramid(img, 6);
 
   const int margin = kWindowSize / 2 + 1;
   Size img_size = img.size();
-  Rect bounds(Point(margin, margin), Size(img_size.width - margin, img_size.height - margin));
+  Rect bounds(Point(margin, margin), Size(img_size.width - 2 * margin, img_size.height - 2 * margin));
   FeatureList result;
   int lost(0), fail(0), fail_score(0), good(0), oob(0);
-  int iters = 80;
+  int iters = 10;
   //if (debug) iters = 1;
   for (auto& f : list) {
+
+    debug = (f.id == 53);
+
     Point2f np = f.pt;
     auto patches1 = tracker.GetPatches(stack1, f.base_pt);
-    auto status1 = tracker.TrackFeature(stack2, patches1, 0.00001, iters, &np);
+    auto status1 = tracker.TrackFeature(stack2, patches1, 0.001, iters, &np);
     if (status1) {
       ++lost;
       continue;
@@ -210,7 +205,7 @@ FeatureList RunTrack1(const Mat& prev, const Mat& img, const FeatureList& list, 
 
     Point2f op = np;
     auto patches2 = tracker.GetPatches(stack2, np);
-    auto status2 = tracker.TrackFeature(stack1, patches2, 0.00001, iters, &op);
+    auto status2 = tracker.TrackFeature(stack1, patches2, 0.001, iters, &op);
     if (status2) {
       ++lost;
       continue;
@@ -218,17 +213,18 @@ FeatureList RunTrack1(const Mat& prev, const Mat& img, const FeatureList& list, 
 
     auto patches3 = tracker.GetPatches(stack1, op);
 
-    printf(" = [%7.2f, %7.2f] => [%7.2f, %7.2f] => [%7.2f, %7.2f]\n", f.base_pt.x, f.base_pt.y, np.x, np.y, op.x, op.y);
+    printf("%3d = [%7.2f, %7.2f] => [%7.2f, %7.2f] => [%7.2f, %7.2f]\n", f.id, f.base_pt.x, f.base_pt.y, np.x, np.y, op.x, op.y);
     if (debug)
       ShowPatches(patches1, patches3, patches2);
 
-    if (norm(op - f.base_pt) > 0.5) {
+    if (norm(op - f.base_pt) > 0.3) {
       ++fail;
       continue;
     }
 
     if (!bounds.contains(np)) {
       ++oob;
+      printf("%3d oob\n", f.id);
       continue;
     }
 
@@ -293,9 +289,6 @@ FeatureList RunTrack(const ImageStack& prev, const ImageStack& img, const Featur
 
     double score = ScoreMatch(prev[0], img[0], in[i], out[i], Size(21, 21));
     //printf("%3d : Score %f\n", list[i].id, score);
-    if (score > max_error || list[i].id == 18) {
-      //ShowMatch(prev[0], img[0], in[i], out[i], Size(21, 21));
-    }
 
     if (score > max_error) {
       fail_score++;
@@ -401,32 +394,32 @@ FeatureList MergeLists(
       }
     }
 
-    if (loc_map.count({f->pt.x, f->pt.y})) {
+    if (loc_map.count({f->pt.x + 0.5, f->pt.y + 0.5})) {
       cout << "Removing " << f->id << " due to duplicate location " << endl;
       continue;
     }
 
-    loc_map.insert({f->pt.x, f->pt.y});
+    loc_map.insert({f->pt.x + 0.5, f->pt.y + 0.5});
     result.push_back(*f);
   }
 
   for (; ai < a.size(); ++ai) {
-    if (loc_map.count({a[ai].pt.x, a[ai].pt.y})) {
+    if (loc_map.count({a[ai].pt.x + 0.5, a[ai].pt.y + 0.5})) {
       cout << "Removing a " << a[ai].id << " due to duplicate location " << endl;
       continue;
     }
 
-    loc_map.insert({a[ai].pt.x, a[ai].pt.y});
+    loc_map.insert({a[ai].pt.x + 0.5, a[ai].pt.y + 0.5});
     result.push_back(a[ai]);
   }
 
   for (; bi < b.size(); ++bi) {
-    if (loc_map.count({b[bi].pt.x, b[bi].pt.y})) {
+    if (loc_map.count({b[bi].pt.x + 0.5, b[bi].pt.y + 0.5})) {
       cout << "Removing b " << b[bi].id << " due to duplicate location " << endl;
       continue;
     }
 
-    loc_map.insert({b[bi].pt.x, b[bi].pt.y});
+    loc_map.insert({b[bi].pt.x + 0.5, b[bi].pt.y + 0.5});
     result.push_back(b[bi]);
   }
 
