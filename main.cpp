@@ -64,7 +64,7 @@ void DumpMap(LocalMap* map, FILE* out) {
 
 // Draw a diagonal cross onto an OpenCV image.
 void DrawCross(cv::Mat* out, const Camera& cam, const Vector2d& point, int size, Scalar color) {
-  auto p = cam.Distort(point);
+  auto p = point; // cam.Distort(point);
   Point2f a(p(0), p(1));
   line(*out, a - Point2f(size,size), a + Point2f(size,size), color, 1, 8);
   line(*out, a - Point2f(size,-size), a + Point2f(size,-size), color, 1, 8);
@@ -75,15 +75,15 @@ void DrawLine(cv::Mat* out,
     const Vector2d& from,
     const Vector2d& to,
     Scalar color) {
-  Vector2d p = cam.Distort(from);
+  Vector2d p = from; // cam.Distort(from);
   Point2f a(p(0), p(1));
-  p = cam.Distort(to);
+  p = to; // cam.Distort(to);
   Point2f b(p(0), p(1));
   line(*out, a, b, color, 1, 8);
 }
 
 void DrawText(cv::Mat* out, const Camera& cam, const string& str, const Vector2d& pos) {
-  Vector2d p = cam.Distort(pos);
+  Vector2d p = pos; // cam.Distort(pos);
   Point2f a(p(0), p(1));
   putText(*out, str, a, FONT_HERSHEY_PLAIN, 0.7, Scalar(0,0,255)); 
 }
@@ -232,7 +232,7 @@ void CallBackFunc(int event, int x, int y, int flags, void* userdata) {
 
     Vector2d dpt, pt;
     dpt << x, y;
-    pt = left_cam->Undistort(dpt);
+    pt = dpt; // left_cam->Undistort(dpt);
 
     double min_dist = 1e2;
     for (const auto& point : lmap->points) {
@@ -254,7 +254,7 @@ void CallBackFunc(int event, int x, int y, int flags, void* userdata) {
   point_id = p->id();
   sprintf(buff, "%d", p->id());
 
-  Vector2d loc = left_cam->Distort(p->observation(-1).pt);
+  Vector2d loc = p->observation(-1).pt;
 
   cv::putText(out, buff, Point2f(loc(0), loc(1)), FONT_HERSHEY_PLAIN, 0.7, Scalar(128,255,0));
   cv::imshow("Left", out);
@@ -276,7 +276,7 @@ void CallBackFunc(int event, int x, int y, int flags, void* userdata) {
     const auto& obs = p->observation(-num++);
     Vector2d center;
     obs.frame->Project(p->location(), &center);
-    center = (left_cam->Distort(center) - left_cam->Distort(obs.pt));
+    center = (center - obs.pt);
     center += Vector2d(7.5, 7.5);
     center *= scale;
 
@@ -447,9 +447,20 @@ int main(int argc, char*argv[]) {
       map.frames[i]->dist = sqrt(d*d/4 + kBaseline * kBaseline);
     }
 
+    // Slam error threshold.
+    const double kErrorThreshold = 5.;
+
     // Track features against the new image, and fill them into
     // the LocalMap.
-    tracking.Track(color, frame_ptr, camera, &map);
+    tracking.Track(color, frame_ptr, camera, &map, 
+        [&]() -> bool {
+          bool ret = slam.Run(&map,
+              10.,
+              [&](Frame* frame) -> bool {
+                return frame->id() == frame_id;
+              });
+          return ret;
+        });
 
     // If there's not a previous image, then we can't run comparisons
     // against it: Just skip to getting another image.
@@ -461,7 +472,6 @@ int main(int argc, char*argv[]) {
     // Run bundle adjustment, first against all the new frame pose
     // (and all world points) while holding all other frame poses
     // constant.
-    const double kErrorThreshold = 5.;
     do {
       // Just solve the current frame pose while holding all other frame
       // poses constant.

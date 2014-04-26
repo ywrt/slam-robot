@@ -24,12 +24,6 @@ class TrackedPoint;
 
 // Camera intrinsics.
 struct Camera {
-  // Takes frame coordinates and maps to (distorted) pixel coordinates.
-  Vector2d Distort(const Vector2d& px) const;
-
-  // Takes pixel co-ordinates and returns undistorted frame coordinates.
-  Vector2d Undistort(const Vector2d& px) const;
-
   double kinit[7];  // k1, k2, k3, fx, fy, cx, cy
   double k[7];  // k1, k2, k3, fx, fy, cx, cy
 };

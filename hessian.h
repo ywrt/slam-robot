@@ -31,10 +31,9 @@ class HessianTracker {
 
   struct Patch {
     Patch(cv::Size s) :
-       size(s), len(s.width * s.height), data(len) {}
+       size(s), data(s.width * s.height) {}
 
     cv::Size size;
-    int len;
     vector<float> data;
     float mean;
     float sumsq;
@@ -43,6 +42,8 @@ class HessianTracker {
   struct GradImage {
     cv::Mat image;
   };
+
+  typedef vector<GradImage> Pyramid;
 
   enum Status {
     OK,

@@ -1,7 +1,7 @@
 //
-// Switch to using the LK tracker.
-// Initialize with 'GoodFeaturesToTrack'.
-// Supress points that are already being tracked.
+// 1. Store patches rather than reference images.
+// 2. Unified feature list.
+// 3. 2-stage matching: Find homography then re-initialize tracking for un-matched features.
 // 
 #include <vector>
 #include <set>
@@ -9,12 +9,15 @@
 #include <deque>
 #include <opencv2/opencv.hpp>
 #include <glog/logging.h>
+#include <memory>
 
 #include "localmap.h"
 #include "hessian.h"
 
 #include "matcher.h"
 
+typedef HessianTracker FeatureTracker;
+typedef FeatureTracker::Pyramid Pyramid;
 
 using namespace cv;
 using namespace std;
@@ -26,21 +29,37 @@ extern int debug;
 struct Matcher::Data {
   Data() : next_fid(0) {}
 
-  struct Feature {
-    Point2f pt;
-    Point2f base_pt;
-    TrackedPoint* point;
-
-    int id;
+  struct View {
+    Frame* frame;
+    Pyramid pyramid;
+    Mat original;
   };
 
-  // vector of feature lists, indexed by camera id.
-  map<int, vector<Feature>> features;
-  map<int, vector<Mat>> images;
-  map<int, Mat> originals;
+  struct Feature {
+    TrackedPoint* point;
+    map<View*, Point2f> matches;
+  };
+
+  struct FeatureCmp {
+    bool operator()(const unique_ptr<Feature>& a, const unique_ptr<Feature>& b) const {
+      return a->point->id() < b->point->id();
+    }
+  };
+
+  typedef set<unique_ptr<Feature>, FeatureCmp> FeatureSet;
+  // Set of live tracked features.
+  FeatureSet features;
+
+  // views, indexed by camera id.
+  deque<unique_ptr<View>> views;
 
   int next_fid;
 };
+
+typedef Matcher::Data::Feature Feature;
+typedef Matcher::Data::View View;
+typedef Matcher::Data::Feature Feature;
+typedef Matcher::Data::FeatureSet FeatureSet;
 
 namespace {
 
@@ -52,72 +71,12 @@ const map<int, deque<Mat>>& GetPatches() {
   return patches;
 }
 
-typedef Matcher::Data::Feature Feature;
-typedef vector<Matcher::Data::Feature> FeatureList;
-typedef vector<Mat> ImageStack;
 
 Matcher::~Matcher() { }
 
 Matcher::Matcher() : data_(new Data) { }
 
 namespace {
-
-template<typename T>
-void VisitPairs(
-    const FeatureList& a,
-    const FeatureList& b,
-    const T& visitor) {
-
-  int ai = 0, bi = 0;
-  while (ai < a.size() && bi < b.size()) {
-    if (a[ai].id < b[bi].id) {
-      ++ai;
-      continue;
-    }
-    if (b[bi].id < a[ai].id) {
-      ++bi;
-      continue;
-    }
-
-    visitor(a[ai], b[bi]);
-
-    ++ai;
-    ++bi;
-  }
-}
-
-void ShowMatch(const Mat& a_img, const Mat& b_img, const Point2f& a, const Point2f& b, const Size& window) {
-  cv::Mat patch_a;
-  cv::getRectSubPix(a_img, window, a, patch_a);
-//  patch_a = patch_a + (cv::Scalar::all(128) - cv::mean(patch_a));
-//  normalize(patch_a, patch_a, 128 * window.width * window.height, NORM_L1);
-
-  cv::Mat patch_b;
-  cv::getRectSubPix(b_img, window, b, patch_b);
-//  patch_b = patch_b + (cv::Scalar::all(128) - cv::mean(patch_b));
-//  normalize(patch_b, patch_b, 128 * window.width * window.height, NORM_L1);
-
-  cv::Mat diff;
-
-  cv::absdiff(patch_a, patch_b, diff);
-
-  int scale = 15;
-  resize(patch_a, patch_a, patch_a.size() * scale, 0, 0, INTER_NEAREST);
-  resize(patch_b, patch_b, patch_b.size() * scale, 0, 0, INTER_NEAREST);
-  resize(diff, diff, diff.size() * scale, 0, 0, INTER_NEAREST);
-  Size s = patch_a.size();
-
-  Mat out(Size(s.width * 3, s.height), a_img.type());
-
-  patch_a.copyTo(out(Rect(0 * s.width, 0, s.width, s.height)));
-  patch_b.copyTo(out(Rect(1 * s.width, 0, s.width, s.height)));
-  diff.copyTo(out(Rect(2 * s.width, 0, s.width, s.height)));
-
-  cv::namedWindow("Diff", CV_WINDOW_AUTOSIZE );// Create a window for display.
-  cv::moveWindow("Diff", 1440, 1500);
-  cv::imshow("Diff", out);
-  cv::waitKey(0);
-}
 
 template<typename T>
 void ShowPatches(
@@ -155,160 +114,7 @@ void ShowPatches(
 }
 
 
-// Compute score for a patch.
-double ScoreMatch(const Mat& a_img, const Mat& b_img, const Point2f& a, const Point2f& b, const Size& window) {
-  cv::Mat patch_a;
-  cv::getRectSubPix(a_img, window, a, patch_a);
-  patch_a = patch_a + (cv::Scalar::all(128) - cv::mean(patch_a));
-//  normalize(patch_a, patch_a, 128 * window.width * window.height, NORM_L1);
-
-  cv::Mat patch_b;
-  cv::getRectSubPix(b_img, window, b, patch_b);
-  patch_b = patch_b + (cv::Scalar::all(128) - cv::mean(patch_b));
-//  normalize(patch_b, patch_b, 128 * window.width * window.height, NORM_L1);
-
-  cv::Mat diff;
-
-  cv::absdiff(patch_a, patch_b, diff);
-
-  double m = cv::norm(patch_a, patch_b);
-
-  return m;
-}
-
-FeatureList RunTrack1(const Mat& prev, const Mat& img, const FeatureList& list, int max_error) {
-  //KLTTracker tracker(Size(kWindowSize, kWindowSize));
-  //BruteTracker tracker(Size(kWindowSize, kWindowSize));
-  HessianTracker tracker(Size(kWindowSize, kWindowSize));
-
-  auto stack1 = tracker.MakePyramid(prev, 6);
-  auto stack2 = tracker.MakePyramid(img, 6);
-
-  const int margin = kWindowSize / 2 + 1;
-  Size img_size = img.size();
-  Rect bounds(Point(margin, margin), Size(img_size.width - 2 * margin, img_size.height - 2 * margin));
-  FeatureList result;
-  int lost(0), fail(0), fail_score(0), good(0), oob(0);
-  int iters = 10;
-  //if (debug) iters = 1;
-  for (auto& f : list) {
-
-    debug = (f.id == 53);
-
-    Point2f np = f.pt;
-    auto patches1 = tracker.GetPatches(stack1, f.base_pt);
-    auto status1 = tracker.TrackFeature(stack2, patches1, 0.001, iters, &np);
-    if (status1) {
-      ++lost;
-      continue;
-    }
-
-    Point2f op = np;
-    auto patches2 = tracker.GetPatches(stack2, np);
-    auto status2 = tracker.TrackFeature(stack1, patches2, 0.001, iters, &op);
-    if (status2) {
-      ++lost;
-      continue;
-    }
-
-    auto patches3 = tracker.GetPatches(stack1, op);
-
-    printf("%3d = [%7.2f, %7.2f] => [%7.2f, %7.2f] => [%7.2f, %7.2f]\n", f.id, f.base_pt.x, f.base_pt.y, np.x, np.y, op.x, op.y);
-    if (debug)
-      ShowPatches(patches1, patches3, patches2);
-
-    if (norm(op - f.base_pt) > 0.3) {
-      ++fail;
-      continue;
-    }
-
-    if (!bounds.contains(np)) {
-      ++oob;
-      printf("%3d oob\n", f.id);
-      continue;
-    }
-
-    result.push_back(f);
-    result.back().pt = np;
-    ++good;
-  }
-
-  cout << "Track1: Lost " << lost << ", Fail " << fail
-    << ", Bad score " << fail_score
-    << ", OOB " << oob
-    << ", Good " << good << "\n";
-  return result;
-}
-
-FeatureList RunTrack(const ImageStack& prev, const ImageStack& img, const FeatureList& list, int max_error) {
-  if (!list.size())
-    return FeatureList();
-
-  vector<Point2f> in, in1, out;
-  for (const auto& f : list) {
-    in.push_back(f.base_pt);
-    out.push_back(f.pt);
-  }
-
-  // Forward match.
-  vector<unsigned char> status1(in.size());
-  vector<float> err1(in.size());
-  calcOpticalFlowPyrLK(prev, img, in, out, status1, err1, Size(kWindowSize, kWindowSize), 5,
-      TermCriteria(TermCriteria::COUNT+TermCriteria::EPS, 40, 0.001),
-      OPTFLOW_USE_INITIAL_FLOW | OPTFLOW_LK_GET_MIN_EIGENVALS,
-      1e-3);
-
-  // Reverse match.
-  vector<unsigned char> status2(in.size());
-  vector<float> err2(in.size());
-  calcOpticalFlowPyrLK(img, prev, out, in1, status2, err2, Size(kWindowSize, kWindowSize), 5,
-      TermCriteria(TermCriteria::COUNT+TermCriteria::EPS, 40, 0.001),
-      0,
-      1e-3);
-
-  FeatureList result;
-  int lost(0), fail(0), fail_score(0), good(0), oob(0);
-  Size img_size = img[0].size();
-  const int margin = kWindowSize / 2 + 1;
-  Rect bounds(Point(margin, margin), Size(img_size.width - margin, img_size.height - margin));
-  for (unsigned int i = 0; i < status1.size(); ++i) {
-    if (!status1[i] || !status2[i]) {
-      ++lost;
-      continue;
-    }
-    // TODO: lift constant.
-    if (norm(in[i] - in1[i]) > 0.5) {
-      ++fail;
-      continue;
-    }
-
-    if (!bounds.contains(out[i])) {
-      ++oob;
-      continue;
-    }
-
-    double score = ScoreMatch(prev[0], img[0], in[i], out[i], Size(21, 21));
-    //printf("%3d : Score %f\n", list[i].id, score);
-
-    if (score > max_error) {
-      fail_score++;
-      continue;
-    }
-
-    result.push_back(list[i]);
-    result.back().pt = out[i];
-    ++good;
-  }
-
-  cout << "Lost " << lost << ", Fail " << fail
-    << ", Bad score " << fail_score
-    << ", OOB " << oob
-    << ", Good " << good << "\n";
-  return result;
-}
-
-template<typename FUNC>
-void AddNewFeatures(const Mat& img, FeatureList* list, FUNC get_next_id) {
+void AddNewFeatures(const Mat& img, const map<Feature*, Point2f>& matches, vector<Point2f>* result) {
   vector<Point2f> corners;
   goodFeaturesToTrack(img,
       corners,
@@ -319,13 +125,14 @@ void AddNewFeatures(const Mat& img, FeatureList* list, FUNC get_next_id) {
 
   const int size = 30;
   int grid[size + 2][size + 2] = {};
-  for (const auto& f : *list) {
-    int gx = (f.pt.x / img.size().width) * size + 1;
-    int gy = (f.pt.y / img.size().height) * size + 1;
-    CHECK_LT(0, gx) << f.pt.x << ", " << f.pt.y << " : [" << img.size().width << ", " << img.size().height << "\n";
-    CHECK_LT(0, gy) << f.pt.x << ", " << f.pt.y << " : [" << img.size().width << ", " << img.size().height << "\n";
-    CHECK_GT(size + 2, gx) << f.pt.x << ", " << f.pt.y << " : [" << img.size().width << ", " << img.size().height << "\n";
-    CHECK_GT(size + 2, gy) << f.pt.x << ", " << f.pt.y << " : [" << img.size().width << ", " << img.size().height << "\n";
+  for (const auto& m : matches) {
+    const Point2f& pt = m.second;
+    int gx = (pt.x / img.size().width) * size + 1;
+    int gy = (pt.y / img.size().height) * size + 1;
+    CHECK_LT(0, gx) << pt.x << ", " << pt.y << " : [" << img.size().width << ", " << img.size().height << "\n";
+    CHECK_LT(0, gy) << pt.x << ", " << pt.y << " : [" << img.size().width << ", " << img.size().height << "\n";
+    CHECK_GT(size + 2, gx) << pt.x << ", " << pt.y << " : [" << img.size().width << ", " << img.size().height << "\n";
+    CHECK_GT(size + 2, gy) << pt.x << ", " << pt.y << " : [" << img.size().width << ", " << img.size().height << "\n";
     grid[gx-1][gy-1] = 1;
     grid[gx-0][gy-1] = 1;
     grid[gx+1][gy-1] = 1;
@@ -348,181 +155,209 @@ void AddNewFeatures(const Mat& img, FeatureList* list, FUNC get_next_id) {
     if (grid[gx][gy])
       continue;
 
-    Feature f;
-    f.pt = c;
-    f.id = get_next_id();
-    f.point = nullptr;
-    list->push_back(f);
+    result->push_back(c);
     ++added;
   }
 
   cout << "Added " << added << " new features\n";
 }
-// Return the merged list. Merge is done by feature ID (stripping
-// features with differing locations), and by location.
-FeatureList MergeLists(
-    const FeatureList& a,
-    const FeatureList& b,
-    int max_l1dist) {
-
-  std::set<pair<int, int> > loc_map;
-  FeatureList result;
-
-  unsigned int ai = 0, bi = 0;
-  while (ai < a.size() && bi < b.size()) {
-    auto& aa = a[ai];
-    auto& bb = b[bi];
-
-    Feature const * f = nullptr;
-    if (aa.id < bb.id) {
-      f = &aa;
-      ai++;
-    } else if (bb.id < aa.id) {
-      f = &bb;
-      bi++;
-    } else {
-      f = &aa;
-      int l1_dist = abs(aa.pt.x - bb.pt.x) + abs(aa.pt.y - bb.pt.y);
-      ++ai;
-      ++bi;
-      if (l1_dist > max_l1dist) {
-        cout << "Removing " << aa.id << " due to error " << l1_dist << " in merge: ("
-          << aa.pt.x << ", " << aa.pt.y << ") v ("
-          << bb.pt.x << ", " << bb.pt.y << ")"
-          << endl;
-        continue;
-      }
-    }
-
-    if (loc_map.count({f->pt.x + 0.5, f->pt.y + 0.5})) {
-      cout << "Removing " << f->id << " due to duplicate location " << endl;
-      continue;
-    }
-
-    loc_map.insert({f->pt.x + 0.5, f->pt.y + 0.5});
-    result.push_back(*f);
-  }
-
-  for (; ai < a.size(); ++ai) {
-    if (loc_map.count({a[ai].pt.x + 0.5, a[ai].pt.y + 0.5})) {
-      cout << "Removing a " << a[ai].id << " due to duplicate location " << endl;
-      continue;
-    }
-
-    loc_map.insert({a[ai].pt.x + 0.5, a[ai].pt.y + 0.5});
-    result.push_back(a[ai]);
-  }
-
-  for (; bi < b.size(); ++bi) {
-    if (loc_map.count({b[bi].pt.x + 0.5, b[bi].pt.y + 0.5})) {
-      cout << "Removing b " << b[bi].id << " due to duplicate location " << endl;
-      continue;
-    }
-
-    loc_map.insert({b[bi].pt.x + 0.5, b[bi].pt.y + 0.5});
-    result.push_back(b[bi]);
-  }
-
-  return result;
-}
-
-// Remove features that reference a bad point.
-FeatureList FilterBad(const FeatureList& list) {
-  FeatureList result;
-  for (auto& f : list) {
-    if (f.point && !f.point->feature_usable()) {
-      printf("p %3d: not feature usable\n", f.point->id());
-      continue;
-    }
-    result.push_back(f);
-  }
-  return result;
-}
-
 
 }  // namespace
 
+bool TrackFeature(int id, FeatureTracker* tracker, const View& from, const Point2f& from_pt, const View& to, Point2f* to_pt) {
+  // Forward match.
+  auto p1 = tracker->GetPatches(from.pyramid, from_pt);
+  auto s1 = tracker->TrackFeature(to.pyramid, p1, 0.001, 10, to_pt);
+
+  auto tpt = *to_pt;
+  // Then reverse match to check.
+  auto p2 = tracker->GetPatches(to.pyramid, *to_pt);
+  Point2f back_pt = from_pt;
+  auto s2 = tracker->TrackFeature(from.pyramid, p2, 0.001, 10, &back_pt);
+
+  bool good = (norm(from_pt - back_pt) < 0.3);
+
+  // Debugging
+  printf("%3d: [%7.2f, %7.2f] => [%7.2f, %7.2f] => [%7.2f, %7.2f] => [%7.2f, %7.2f] %s %s\n",
+      id, from_pt.x, from_pt.y, tpt.x, tpt.y, to_pt->x, to_pt->y, back_pt.x, back_pt.y,
+      good ? "Good" : "Bad", (s1 || s2) ? "Lost" : "");
+
+  // TODO: Move this to be early exit after debugging finishes.
+  if (s1 || s2)
+    return false;
+
+  if (debug) {
+    auto p3 = tracker->GetPatches(from.pyramid, back_pt);
+    ShowPatches(p1, p3, p2);
+  }
+
+  // Reject if the reverse differs significantly from the original.
+  if (norm(from_pt - back_pt) > 0.3) {
+    return false;
+  }
+
+  return true;
+}
+
+void FindMatches(const FeatureSet& features, const View& view, FeatureTracker* tracker, std::map<Feature*, Point2f>* matches) {
+  // For each feature, try and propogate forward into this view (if not
+  // already done so.
+  for (auto& f : features) {
+    if (matches->count(f.get()))
+      continue;
+    for (auto& m : f->matches) {
+      const auto& from_view = *m.first;
+      const auto& from_pt = m.second;
+      const auto& to_view = view;
+      auto to_pt = from_pt;
+
+      // Use the projected point location as a starting point in
+      // searching for a match.
+      if (f->point->slam_usable()) {
+        Eigen::Vector2d p;
+        if (to_view.frame->Project(f->point->location(), &p)) {
+          to_pt.x = p(0);
+          to_pt.y = p(1);
+        }
+      }
+
+      //debug = (f->point->id() == 78);
+
+      if (to_pt.x < 0 || to_pt.y < 0 || to_pt.x >= view.original.cols || to_pt.y > view.original.rows)
+        continue;  // OOBs
+
+      if (!TrackFeature(f->point->id(), tracker, from_view, from_pt, to_view, &to_pt))
+        continue;
+
+      (*matches)[f.get()] = to_pt;
+
+      // Add the new observations to the LocalMap.
+      Vector2d frame_point(to_pt.x, to_pt.y);
+      f->point->AddObservation({frame_point, to_view.frame});
+
+      // Debugging.
+      cv::Mat patch;
+      cv::getRectSubPix(to_view.original, Size(kWindowSize, kWindowSize), to_pt, patch);
+      int id = f->point->id();
+      patches[id].push_front(patch.clone());
+      if (patches[id].size() > 30)
+        patches[id].pop_back();
+
+      // TODO: Think about multiple matching here.
+      break;
+    }
+  }
+
+}
+
+// BuildView.
+// MatchView.
+//   do slam in here.
+// MatchView.
+// AddKeyFrame (which may add new features).
 
 // Track features from the previous two frames.
 // (There may be an assumption that the previous frames are from alternating
 // cameras).
 //
 // Adds matched features to the localmap.
-bool Matcher::Track(const Mat& img, Frame* frame, int camera, LocalMap* map) {
-  auto&d = *data_;
+bool Matcher::Track(const Mat& img, Frame* frame, int camera, LocalMap* map, std::function<bool ()> update_frames) {
+  auto& d = *data_;
+
+  FeatureTracker tracker(Size(kWindowSize, kWindowSize));
 
   CHECK_NE(img.size().width, 0);
   CHECK_NE(img.size().height, 0);
   CHECK_NOTNULL(map);
   CHECK_NOTNULL(frame);
 
-  bool new_keyframe = false;
-
   // Build an image pyamid for the new image.
-  vector<Mat> pyr;
   Mat grey;
   cvtColor(img, grey, CV_RGB2GRAY);
-  buildOpticalFlowPyramid(grey, pyr, Size(kWindowSize, kWindowSize), 5, true); 
 
-  FeatureList list;
-  // Track against the previous cross-camera image
-  // TODO: Lift out constants.
-  if (d.images.count(camera ^ 1)) {
-    //list = RunTrack(d.images[camera ^ 1], pyr, FilterBad(d.features[camera ^ 1]), 1000);
+  View* view = new View;
+  view->frame = frame;
+  view->pyramid = tracker.MakePyramid(img, 6);
+  view->original = img.clone();
 
-    list = RunTrack1(d.originals[camera ^ 1], img, FilterBad(d.features[camera ^ 1]), 1000);
+  // For each live tracked point, run over previous matches attempting to
+  // propogate forward into this view. For a given tracked point, if there
+  // are multiple matches, we take the best.
+  //
+  // We occasionally remove views and all the associated matches.
+ 
+  // Remove bad matches.
+  for (auto& f : d.features) {
+    if (!f->point->feature_usable())
+      d.features.erase(f);
   }
+ 
+  // matches propogated forward into the current view.
+  std::map<Feature*, Point2f> matches;
 
-  // Track against the previous same-camera image
-  if (d.images.count(camera)) {
-    //auto list2 = RunTrack(d.images[camera], pyr, FilterBad(d.features[camera]), 1000);
-    auto list2 = RunTrack1(d.originals[camera], img, FilterBad(d.features[camera]), 1000);
-    list = MergeLists(list2, list, 5);
+  FindMatches(d.features, *view, &tracker, &matches);
+
+  if (1 || matches.size() < 40) {
+    int before = matches.size();
+    if (update_frames != nullptr) {
+      if (update_frames()) {
+        // Inferred position of Frame* has been updated, so try again for matching points.
+        FindMatches(d.features, *view, &tracker, &matches);
+      }
+    }
+    printf("Started with %d, grew to %d after additional matching\n", before, (int) matches.size());
   }
 
   // If there are insufficient trackable features, add new features from the
   // current image that aren't too close to an existing feature. Pass in a
   // lambda to generate feature IDs.
   // TODO: Lift out constant.
-  if (list.size() < 40) {
-    AddNewFeatures(grey, &list, [&d]() -> int { return d.next_fid++; });
-    new_keyframe = true;
-    printf("Adding new keyframe for camera %d on frame %d\n", camera, frame->id());
+  if (matches.size() >= 40)
+    return true;
+
+
+  // New keyframe, so add the matches permanantly.
+  for (auto& m : matches) {
+    Feature* f = m.first;
+    const auto& pt = m.second;
+    f->matches[view] = pt;
   }
 
-  // Add the new observations to the LocalMap. If this feature doesn't
-  // have an associated TrackedPoint then add one. Use Frame::Unproject
-  // to initialize the world space location of the tracked point.
-  for (auto&f : list) {
-    Vector2d fpt(f.pt.x, f.pt.y);
-    Vector2d frame_point = frame->camera()->Undistort(fpt);
-    Vector2d test_point = frame->camera()->Distort(frame_point);
-    double test_dist = (fpt - test_point).norm();
-    CHECK_NEAR(test_dist, 0, 1e-5);
+  d.views.push_back(unique_ptr<View>(view));
 
-    if (!f.point) {
-      // TODO: Lift constant.
-      auto location = frame->Unproject(frame_point / 530., 1500);
-      f.point = map->AddPoint(f.id, location);
-    }
+  // Possibly add new features.
+  vector<Point2f> added;
+  AddNewFeatures(grey, matches, &added);
+  printf("Adding new keyframe for camera %d on frame %d (added %d)\n", camera, frame->id(), (int)added.size());
 
-    f.point->AddObservation({frame_point, frame});
+  for (auto& pt : added) {
+    Vector2d frame_point(pt.x, pt.y);
 
+    // Add a new TrackedPoint to the local map.
+    // Use Frame::Unproject to initialize the world space location of the tracked point.
+    Feature* f = new Feature;
+    auto location = view->frame->Unproject(frame_point / 530., 1500);
+    f->point = map->AddPoint(d.next_fid++, location);
+    f->point->AddObservation({frame_point, view->frame});
+
+    f->matches[view] = pt;
+    d.features.insert(unique_ptr<Feature>(f));
+
+    // Debugging.
     cv::Mat patch;
-    cv::getRectSubPix(img, Size(kWindowSize, kWindowSize), f.pt, patch);
-    patches[f.id].push_front(patch.clone());
-    if (patches[f.id].size() > 30)
-      patches[f.id].pop_back();
+    cv::getRectSubPix(view->original, Size(kWindowSize, kWindowSize), pt, patch);
+    int id = f->point->id();
+    patches[id].push_front(patch.clone());
+    if (patches[id].size() > 30)
+      patches[id].pop_back();
   }
 
-  if (new_keyframe) {
-    // We changing the reference image, so update the reference point.
-    for (auto& f : list) {
-      f.base_pt = f.pt;
-    }
-    d.images[camera] = move(pyr);
-    d.features[camera] = move(list);
-    d.originals[camera] = img.clone();
+  // Potentially remove an old view.
+  if (d.views.size() > 4) {
+    View* view = d.views.front().get();
+    for (auto& f : d.features)
+      f->matches.erase(view);
+    d.views.pop_front();
   }
 
   return true;

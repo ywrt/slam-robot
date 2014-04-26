@@ -14,51 +14,6 @@
 
 #include "localmap.h"
 
-
-// Takes frame coordinates and maps to (distorted) pixel coordinates.
-Vector2d Camera::Distort(const Vector2d& px) const {
-  return px;
-#if 0
-  //double rd = px.squaredNorm();
-  double xd = px(0);
-  double yd = px(1);
-
-  double xu = xd; // *(1+k1*rd + k2*rd*rd + k3*rd*rd*rd) + 2*p1*xd*yd + p2*(rd+ 2*xd*xd);
-  double yu = yd; // *(1+k1*rd + k2*rd*rd + k3*rd*rd*rd) + p1*(rd + 2*yd*yd) + 2*p2*xd*yd;
-
-  return Vector2d(xu, yu).array() * focal.array() + center.array();
-#endif
-}
-
-// Takes pixel co-ordinates and returns undistorted frame coordinates.
-Vector2d Camera::Undistort(const Vector2d& px) const {
-  return px;
-#if 0
-  Vector2d p = px;
-  p -= center;
-  p.array() /= focal.array();
-
-  return p;
-  double x, y;
-  double x0 = x = p[0];
-  double y0 = y = p[1];
-
-  // k1, k2, p1, p2, k3
-  // compensate distortion iteratively
-  for( unsigned int j = 0; j < 7; j++ ) {
-    double r2 = x*x + y*y;
-
-    double icdist = 1./(1 + ((k3*r2 + k2)*r2 + k1)*r2);
-    double deltaX = 2*p1*x*y + p2*(r2 + 2*x*x);
-    double deltaY = p1*(r2 + 2*y*y) + 2*p2*x*y;
-    x = (x0 - deltaX)*icdist;
-    y = (y0 - deltaY)*icdist;
-  }
-
-  return Vector2d(x, y);
-#endif
-}
-
 // Project a point in worldspace into Frame pixel space.
 bool Frame::Project(const Vector4d& point, Vector2d* result) const {
   ProjectPoint project;
