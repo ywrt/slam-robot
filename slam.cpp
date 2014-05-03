@@ -114,13 +114,13 @@ struct CameraStabilization {
       const T* const intrinsics,  // [k1, k2]
       T* residual) const {
 
-    residual[0] = T(5.0) * intrinsics[0] * intrinsics[0];
-    residual[1] = T(5.0) * intrinsics[1] * intrinsics[1];
-    residual[2] = T(5.0) * intrinsics[2] * intrinsics[2];
-    residual[3] = T(1.1) * (intrinsics[3] - T(530.1)) * (intrinsics[3] - T(530.));
-    residual[4] = T(1.1) * (intrinsics[4] - T(530.1)) * (intrinsics[4] - T(530.));
-    residual[5] = T(.1) * (intrinsics[5] - T(318.)) * (intrinsics[5] - T(318.));
-    residual[6] = T(.1) * (intrinsics[6] - T(240.)) * (intrinsics[6] - T(240.));
+    residual[0] = T(1.0) * intrinsics[0] * intrinsics[0];
+    residual[1] = T(1.0) * intrinsics[1] * intrinsics[1];
+    residual[2] = T(1.0) * intrinsics[2] * intrinsics[2];
+    residual[3] = T(0.1) * (intrinsics[3] - T(530.1)) * (intrinsics[3] - T(530.));
+    residual[4] = T(0.1) * (intrinsics[4] - T(530.1)) * (intrinsics[4] - T(530.));
+    residual[5] = T(.01) * (intrinsics[5] - T(310.)) * (intrinsics[5] - T(310.));
+    residual[6] = T(.01) * (intrinsics[6] - T(239.)) * (intrinsics[6] - T(239.));
 
     return true;
   }

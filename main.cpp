@@ -270,37 +270,40 @@ void CallBackFunc(int event, int x, int y, int flags, void* userdata) {
 
   Point2f cursor(0,0);
   const int margin = 2;
-  const int scale = 5;
+  const int scale = 8;
   int num = 1;
   for (const auto& morig : plist) {
     const auto& obs = p->observation(-num++);
     Vector2d center;
     obs.frame->Project(p->location(), &center);
     center = (center - obs.pt);
-    center += Vector2d(7.5, 7.5);
+    center += Vector2d(0.5 * morig.size().width, 0.5 * morig.size().height);
     center *= scale;
 
     Mat m = morig.clone();
     resize(m, m, m.size() * scale, 0, 0, INTER_NEAREST);
+
+    line(m,
+        Point2f(m.size().width / 2., m.size().height / 2. - 5),
+        Point2f(m.size().width / 2., m.size().height / 2. + 5),
+        Scalar(0, 192, 0), 1, 8);
+    line(m,
+        Point2f(m.size().width / 2. - 5, m.size().height / 2.),
+        Point2f(m.size().width / 2. + 5, m.size().height / 2.),
+        Scalar(0, 192, 0), 1, 8);
 
     if (center(0) > 0 && center(1) > 0 &&
         center(0) < m.size().width - 3 && center(1) < m.size().height - 3) {
       m(Rect(center(0),center(1), 3, 3)) = Scalar(0,0,255);
     } else {
     }
-    line(m,
-        Point2f(m.size().width / 2., m.size().height / 2. - 5),
-        Point2f(m.size().width / 2., m.size().height / 2. + 5),
-        Scalar(0,0,128), 1, 8);
-    line(m,
-        Point2f(m.size().width / 2. - 5, m.size().height / 2.),
-        Point2f(m.size().width / 2. + 5, m.size().height / 2.),
-        Scalar(0,0,128), 1, 8);
 
     if ((cursor.x + m.size().width) > rout.size().width) {
       cursor.x = 0;
       cursor.y += m.size().height + margin;
     }
+    if (cursor.y + m.size().height >= rout.size().height)
+      break;
     m.copyTo(rout(Rect(cursor.x, cursor.y, m.size().width, m.size().height)));
     cursor.x += m.size().width + margin;
   }
@@ -318,26 +321,26 @@ void CallBackFunc(int event, int x, int y, int flags, void* userdata) {
   cv::imshow("Right", rout);
 }
 
+// [CAMERA_PARAMS] Left
+// resolution=[640 480]
+// cx=287.03691
+// cy=228.17558
+// fx=530.05895
+// fy=530.23204
+// dist=[-1.442760e-01 3.246676e-01 1.588004e-04 -1.096403e-03 0.000000e+00]
+//
+// [CAMERA_PARAMS] Right
+// resolution=[640 480]
+// cx=312.14364
+// cy=233.92664
+// fx=525.75698
+// fy=526.16432
+// dist=[-1.091669e-01 2.201787e-01 -1.866669e-03 1.632135e-04 0.000000e+00]
 void InitCameras(Camera* left, Camera* right) {
-  //left->center << 320, 240; // 287, 228;
-  //left->center << 312.14, 233.93;
-  //left->focal << 530.1, 530.2;
   for (int i = 0; i < 7; ++i) {
     left->k[i] = left->kinit[i];
     right->k[i] = right->kinit[i];
   }
-
-  //right->center << 320, 240; // 312.14, 233.93;
-  //right->center << 287, 228;
-  //right->focal << 525.76, 526.16;
-  //right->focal << 530.1, 530.2;
-
-  //cam_model->k1 = -4e-2;
-  //cam_model->k1 = -1.091669e-01;
-  //cam_model->k2 = 2.201787e-01;
-  //cam_model->p1 = -1.866669e-03;
-  //cam_model->p2 = 1.632135e-04;
-  //cam_model->k3 = 0.000000e+00;
 }
 
 
@@ -371,28 +374,15 @@ int main(int argc, char*argv[]) {
 
   // We assume two cameras, with frames from 'cam'
   // alternating between them.
-
-  // [CAMERA_PARAMS] Left
-  // resolution=[640 480]
-  // cx=287.03691
-  // cy=228.17558
-  // fx=530.05895
-  // fy=530.23204
-  // dist=[-1.442760e-01 3.246676e-01 1.588004e-04 -1.096403e-03 0.000000e+00]
-  //
-  // [CAMERA_PARAMS] Right
-  // resolution=[640 480]
-  // cx=312.14364
-  // cy=233.92664
-  // fx=525.75698
-  // fy=526.16432
-  // dist=[-1.091669e-01 2.201787e-01 -1.866669e-03 1.632135e-04 0.000000e+00]
-
   map.AddCamera(new Camera{
-      -0.10665,  0.20000,  0.07195, 529.35050, 529.70380, 322.07373, 240.90333
+      //-0.10665,  0.20000,  0.07195, 529.35050, 529.70380, 322.07373, 240.90333
+      //-0.10997,  0.22927, -0.03465, 525.83877, 527.89065, 314.11277, 237.66428
+      -0.11063,  0.23578, -0.04918, 525.93916, 527.72444, 313.81586, 238.12937
       });
   map.AddCamera(new Camera{
-      -0.12031,  0.20155,  0.06873, 531.77238, 530.43886, 299.85292, 237.38257
+      //-0.12031,  0.20155,  0.06873, 531.77238, 530.43886, 299.85292, 237.38257
+      //-0.11049,  0.20269,  0.00757, 527.86300, 529.93065, 289.55683, 226.53018
+      -0.11233,  0.20996, -0.00277, 528.15652, 530.17048, 289.13812, 226.88791
       });
 
   //map.AddCamera(new Camera{-0.001, 0.0081, 0, 529.5, 530.7, 321.0, 242.5});
@@ -405,9 +395,13 @@ int main(int argc, char*argv[]) {
   // Bundle adjustment.
   Slam slam;
 
+  // Assumed distance between the two cameras.
   const double kBaseline = 150.;
+
   // The previous image; used for displaying debugging information.
   Mat prev;
+
+  // Which camera the previous frame came from.
   int camera = 1;
   while (1) {
     have_image = false;
@@ -472,18 +466,17 @@ int main(int argc, char*argv[]) {
     // Run bundle adjustment, first against all the new frame pose
     // (and all world points) while holding all other frame poses
     // constant.
-    do {
-      // Just solve the current frame pose while holding all other frame
-      // poses constant.
-      if (!slam.Run(&map,
-            10.,
+   
+    if (slam.Run(&map,
+            2.,
             [=](Frame* frame) -> bool {
               return frame->id() == frame_id;
             })) {
-        break;  // Failed to run SLAM.
-      }
       slam.ReprojectMap(&map);
-    } while (!map.Clean(kErrorThreshold * 4));
+      map.Clean(kErrorThreshold);
+    }
+
+    // Occasionally run bundle adjustment over the previous 10 frames.
     if (frame_id < 10 || (frame_id % 5) == 0) {
       // Then solve all frame poses.
       //slam.Run(&map, nullptr);
@@ -494,6 +487,7 @@ int main(int argc, char*argv[]) {
             return frame->id() >= (frame_id - 10);
           }))
         break;  // Failed to run SLAM.
+      slam.ReprojectMap(&map);
       map.Clean(kErrorThreshold);
     }
 
@@ -527,8 +521,10 @@ int main(int argc, char*argv[]) {
     prev = color;
 
     have_image = true;
+
     if (!(frame_id% 10))
       cv::waitKey(0);
+
     if ((frame_id % 100) == 0) {
       // Print some debugging stats to STDOUT.
       slam.Run(&map, 10, [](Frame*)->bool { return true; });
@@ -540,7 +536,8 @@ int main(int argc, char*argv[]) {
 
       InitCameras(map.cameras[0].get(), map.cameras[1].get());
       slam.Run(&map, 1, nullptr);
-      printf("cam0: k %8.5f %8.5f %8.5f f [%8.5f, %8.5f] c [%8.5f, %8.5f]\n",
+      printf("k1 k2 k3 fx fy cx cy\n");
+      printf(" %8.5f, %8.5f, %8.5f, %8.5f, %8.5f, %8.5f, %8.5f\n",
           map.cameras[0]->k[0],
           map.cameras[0]->k[1],
           map.cameras[0]->k[2],
@@ -549,25 +546,7 @@ int main(int argc, char*argv[]) {
           map.cameras[0]->k[5],
           map.cameras[0]->k[6]
           );
-      printf("cam1: k %8.5f %8.5f %8.5f f [%8.5f, %8.5f] c [%8.5f, %8.5f]\n",
-          map.cameras[1]->k[0],
-          map.cameras[1]->k[1],
-          map.cameras[1]->k[2],
-          map.cameras[1]->k[3],
-          map.cameras[1]->k[4],
-          map.cameras[1]->k[5],
-          map.cameras[1]->k[6]
-          );
-       printf(" %8.5f, %8.5f, %8.5f, %8.5f, %8.5f, %8.5f, %8.5f\n",
-          map.cameras[0]->k[0],
-          map.cameras[0]->k[1],
-          map.cameras[0]->k[2],
-          map.cameras[0]->k[3],
-          map.cameras[0]->k[4],
-          map.cameras[0]->k[5],
-          map.cameras[0]->k[6]
-          );
-       printf(" %8.5f, %8.5f, %8.5f, %8.5f, %8.5f, %8.5f, %8.5f\n",
+      printf(" %8.5f, %8.5f, %8.5f, %8.5f, %8.5f, %8.5f, %8.5f\n",
           map.cameras[1]->k[0],
           map.cameras[1]->k[1],
           map.cameras[1]->k[2],
@@ -577,7 +556,7 @@ int main(int argc, char*argv[]) {
           map.cameras[1]->k[6]
           );
       slam.ReprojectMap(&map);
-      //InitCameras(map.cameras[0].get(), map.cameras[1].get());
+      InitCameras(map.cameras[0].get(), map.cameras[1].get());
 
       cv::waitKey(0);
     }

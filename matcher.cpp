@@ -1,7 +1,6 @@
 //
 // 1. Store patches rather than reference images.
-// 2. Unified feature list.
-// 3. 2-stage matching: Find homography then re-initialize tracking for un-matched features.
+// 2. Only use projected point when it's reliable?
 // 
 #include <vector>
 #include <set>
@@ -164,30 +163,30 @@ void AddNewFeatures(const Mat& img, const map<Feature*, Point2f>& matches, vecto
 
 }  // namespace
 
-bool TrackFeature(int id, FeatureTracker* tracker, const View& from, const Point2f& from_pt, const View& to, Point2f* to_pt) {
+bool TrackFeature(int id, FeatureTracker* tracker, const View& from, const Point2f& from_pt, const View& to, int lvls, Point2f* to_pt) {
   // Forward match.
-  auto p1 = tracker->GetPatches(from.pyramid, from_pt);
+  auto p1 = tracker->GetPatches(from.pyramid, from_pt, lvls);
   auto s1 = tracker->TrackFeature(to.pyramid, p1, 0.001, 10, to_pt);
 
   auto tpt = *to_pt;
   // Then reverse match to check.
-  auto p2 = tracker->GetPatches(to.pyramid, *to_pt);
+  auto p2 = tracker->GetPatches(to.pyramid, *to_pt, lvls);
   Point2f back_pt = from_pt;
   auto s2 = tracker->TrackFeature(from.pyramid, p2, 0.001, 10, &back_pt);
 
   bool good = (norm(from_pt - back_pt) < 0.3);
 
   // Debugging
-  printf("%3d: [%7.2f, %7.2f] => [%7.2f, %7.2f] => [%7.2f, %7.2f] => [%7.2f, %7.2f] %s %s\n",
-      id, from_pt.x, from_pt.y, tpt.x, tpt.y, to_pt->x, to_pt->y, back_pt.x, back_pt.y,
-      good ? "Good" : "Bad", (s1 || s2) ? "Lost" : "");
+  //printf("%3d: [%7.2f, %7.2f] => [%7.2f, %7.2f] => [%7.2f, %7.2f] => [%7.2f, %7.2f] (%d) %s %s\n",
+  //    id, from_pt.x, from_pt.y, tpt.x, tpt.y, to_pt->x, to_pt->y, back_pt.x, back_pt.y, lvls,
+  //    good ? "Good" : "Bad", (s1 || s2) ? "Lost" : "");
 
   // TODO: Move this to be early exit after debugging finishes.
   if (s1 || s2)
     return false;
 
   if (debug) {
-    auto p3 = tracker->GetPatches(from.pyramid, back_pt);
+    auto p3 = tracker->GetPatches(from.pyramid, back_pt, lvls);
     ShowPatches(p1, p3, p2);
   }
 
@@ -199,9 +198,18 @@ bool TrackFeature(int id, FeatureTracker* tracker, const View& from, const Point
   return true;
 }
 
-void FindMatches(const FeatureSet& features, const View& view, FeatureTracker* tracker, std::map<Feature*, Point2f>* matches) {
+void FindMatches(
+    const FeatureSet& features,
+    const View& view,
+    bool second_pass,
+    FeatureTracker* tracker,
+    std::map<Feature*, Point2f>* matches) {
   // For each feature, try and propogate forward into this view (if not
   // already done so.
+
+  // If we're on the second pass, we only looking at projectable points,
+  // and we're looking doing fine matching.
+  int levels = second_pass ? 3 : 6;
   for (auto& f : features) {
     if (matches->count(f.get()))
       continue;
@@ -219,14 +227,16 @@ void FindMatches(const FeatureSet& features, const View& view, FeatureTracker* t
           to_pt.x = p(0);
           to_pt.y = p(1);
         }
+      } else if (second_pass) {
+        continue;  // Only tried and failed on the first pass.
       }
 
-      //debug = (f->point->id() == 78);
+      //debug = (f->point->id() == 40);
 
       if (to_pt.x < 0 || to_pt.y < 0 || to_pt.x >= view.original.cols || to_pt.y > view.original.rows)
         continue;  // OOBs
 
-      if (!TrackFeature(f->point->id(), tracker, from_view, from_pt, to_view, &to_pt))
+      if (!TrackFeature(f->point->id(), tracker, from_view, from_pt, to_view, levels, &to_pt))
         continue;
 
       (*matches)[f.get()] = to_pt;
@@ -247,7 +257,23 @@ void FindMatches(const FeatureSet& features, const View& view, FeatureTracker* t
       break;
     }
   }
+}
 
+// Find points that are duplicates and stop tracking the most recent.
+void CleanDuplicates(
+    std::map<Feature*, Point2f>* matches
+    ) {
+
+  std::set<std::pair<int, int>> mask;
+  for (auto& m : *matches) {
+    auto p = make_pair(m.second.x/2, m.second.y/2);
+    if (mask.count(p)) {
+      m.first->point->set_flag(TrackedPoint::Flags::MISMATCHED);
+      printf("Removed duplicated point %3d\n", m.first->point->id());
+    } else {
+      mask.insert(p);
+    }
+  }
 }
 
 // BuildView.
@@ -295,18 +321,20 @@ bool Matcher::Track(const Mat& img, Frame* frame, int camera, LocalMap* map, std
   // matches propogated forward into the current view.
   std::map<Feature*, Point2f> matches;
 
-  FindMatches(d.features, *view, &tracker, &matches);
+  FindMatches(d.features, *view, false, &tracker, &matches);
 
   if (1 || matches.size() < 40) {
     int before = matches.size();
     if (update_frames != nullptr) {
       if (update_frames()) {
         // Inferred position of Frame* has been updated, so try again for matching points.
-        FindMatches(d.features, *view, &tracker, &matches);
+        FindMatches(d.features, *view, true, &tracker, &matches);
       }
     }
     printf("Started with %d, grew to %d after additional matching\n", before, (int) matches.size());
   }
+
+  //CleanDuplicates(&matches);
 
   // If there are insufficient trackable features, add new features from the
   // current image that aren't too close to an existing feature. Pass in a
@@ -314,7 +342,6 @@ bool Matcher::Track(const Mat& img, Frame* frame, int camera, LocalMap* map, std
   // TODO: Lift out constant.
   if (matches.size() >= 40)
     return true;
-
 
   // New keyframe, so add the matches permanantly.
   for (auto& m : matches) {

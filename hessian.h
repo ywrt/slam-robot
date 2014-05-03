@@ -172,9 +172,10 @@ class HessianTracker {
   }
 
   // Get a patch stack.
-  vector<Patch> GetPatches(const vector<GradImage>& stack, cv::Point2f pt) {
+  vector<Patch> GetPatches(const vector<GradImage>& stack, cv::Point2f pt, int levels) {
+    levels = min((int)stack.size(), levels);
     vector<Patch> result;
-    for (unsigned int i = 0; i < stack.size(); ++i) {
+    for (int i = 0; i < levels; ++i) {
       result.push_back(GetPatch(stack[i], pt));
       pt *= 0.5;
     }
@@ -245,7 +246,7 @@ class HessianTracker {
       float threshold,
       int max_iterations,
       cv::Point2f* pt) {
-    int lvls = stack.size();
+    int lvls = min(stack.size(), patches.size());
     if (debug) printf("Tracking %7.2f, %7.2f\n", pt->x, pt->y);
     cv::Point2f p = (*pt) * (1./ (1 << (lvls - 1)));
     for (int i = lvls - 1 ; i > 0; --i) {
