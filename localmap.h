@@ -26,6 +26,12 @@ class TrackedPoint;
 struct Camera {
   double kinit[7];  // k1, k2, k3, fx, fy, cx, cy
   double k[7];  // k1, k2, k3, fx, fy, cx, cy
+
+  void Reset() {
+    for (int i = 0; i < 7; ++i) {
+      k[i] = kinit[i];
+    }
+  }
 };
 
 // A frame taken by a specific camera in a specific pose.

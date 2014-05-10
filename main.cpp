@@ -336,12 +336,6 @@ void CallBackFunc(int event, int x, int y, int flags, void* userdata) {
 // fx=525.75698
 // fy=526.16432
 // dist=[-1.091669e-01 2.201787e-01 -1.866669e-03 1.632135e-04 0.000000e+00]
-void InitCameras(Camera* left, Camera* right) {
-  for (int i = 0; i < 7; ++i) {
-    left->k[i] = left->kinit[i];
-    right->k[i] = right->kinit[i];
-  }
-}
 
 
 int main(int argc, char*argv[]) {
@@ -373,7 +367,8 @@ int main(int argc, char*argv[]) {
   lmap = &map;
 
   // We assume two cameras, with frames from 'cam'
-  // alternating between them.
+  // alternating between them. Initialize with the
+  // distortion parameters. k1, k2, k3, fx, fy, cx, cy.
   map.AddCamera(new Camera{
       //-0.10665,  0.20000,  0.07195, 529.35050, 529.70380, 322.07373, 240.90333
       //-0.10997,  0.22927, -0.03465, 525.83877, 527.89065, 314.11277, 237.66428
@@ -385,9 +380,10 @@ int main(int argc, char*argv[]) {
       -0.11233,  0.20996, -0.00277, 528.15652, 530.17048, 289.13812, 226.88791
       });
 
-  //map.AddCamera(new Camera{-0.001, 0.0081, 0, 529.5, 530.7, 321.0, 242.5});
-  //map.AddCamera(new Camera{-0.003, 0.0067, 0, 530.6, 529.3, 314.6, 237.5});
-  InitCameras(map.cameras[0].get(), map.cameras[1].get());
+  // Initialize the cameras.
+  map.cameras[0]->Reset();
+  map.cameras[1]->Reset();
+
   // A feature tracker. Holds internal state of the previous
   // images.
   Matcher tracking;
@@ -498,9 +494,6 @@ int main(int argc, char*argv[]) {
 
     CHECK_NEAR(err1, err2, 1e-1);
 
-    Mat blend;
-    addWeighted(prev, 0.5, color, 0.5, 0, blend);
-
     // Draw observation history onto the left frame.
     Mat out1 = prev.clone();
     DrawDebug(map, *(map.cameras[camera ^ 1].get()), &out1);
@@ -527,6 +520,7 @@ int main(int argc, char*argv[]) {
 
     if ((frame_id % 100) == 0) {
       // Print some debugging stats to STDOUT.
+      // Re-run slam with increasingly tight rejection of outliers.
       slam.Run(&map, 10, [](Frame*)->bool { return true; });
       slam.Run(&map, 5, [](Frame*)->bool { return true; });
       slam.Run(&map, 2, [](Frame*)->bool { return true; });
@@ -534,7 +528,10 @@ int main(int argc, char*argv[]) {
       slam.Run(&map, 0.7, [](Frame*)->bool { return true; });
       map.Stats();
 
-      InitCameras(map.cameras[0].get(), map.cameras[1].get());
+      map.cameras[0]->Reset();
+      map.cameras[1]->Reset();
+
+      // Run total bundle adjustment including camera instrinsics.
       slam.Run(&map, 1, nullptr);
       printf("k1 k2 k3 fx fy cx cy\n");
       printf(" %8.5f, %8.5f, %8.5f, %8.5f, %8.5f, %8.5f, %8.5f\n",
@@ -556,7 +553,8 @@ int main(int argc, char*argv[]) {
           map.cameras[1]->k[6]
           );
       slam.ReprojectMap(&map);
-      InitCameras(map.cameras[0].get(), map.cameras[1].get());
+      map.cameras[0]->Reset();
+      map.cameras[1]->Reset();
 
       cv::waitKey(0);
     }
