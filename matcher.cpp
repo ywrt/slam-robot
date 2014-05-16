@@ -168,13 +168,13 @@ bool TrackFeature(int id, FeatureTracker* tracker, const View& from, const Point
   auto p1 = tracker->GetPatches(from.pyramid, from_pt, lvls);
   auto s1 = tracker->TrackFeature(to.pyramid, p1, 0.001, 10, to_pt);
 
-  auto tpt = *to_pt;
+  //auto tpt = *to_pt;
   // Then reverse match to check.
   auto p2 = tracker->GetPatches(to.pyramid, *to_pt, lvls);
   Point2f back_pt = from_pt;
   auto s2 = tracker->TrackFeature(from.pyramid, p2, 0.001, 10, &back_pt);
 
-  bool good = (norm(from_pt - back_pt) < 0.3);
+  //bool good = (norm(from_pt - back_pt) < 0.3);
 
   // Debugging
   //printf("%3d: [%7.2f, %7.2f] => [%7.2f, %7.2f] => [%7.2f, %7.2f] => [%7.2f, %7.2f] (%d) %s %s\n",

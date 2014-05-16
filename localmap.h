@@ -32,6 +32,51 @@ struct Camera {
       k[i] = kinit[i];
     }
   }
+
+  // Map from [-1,1] x [-1,1] projective plane space 
+  // to [0,width]x[0,height] pixel space.
+  Vector2d PlaneToPixel(const Vector2d& p) {
+    double xp = p[0];
+    double yp = p[1];
+
+    double r2 = xp*xp + yp*yp;
+    double distort = 1.0 + r2 * (k[0] + r2 * (k[1] + r2 * k[2]));
+
+    xp *= distort;
+    yp *= distort;
+
+    xp *= k[3];
+    yp *= k[4];
+
+    xp += k[5];
+    yp += k[6];
+    return Vector2d(xp, yp);
+  }
+
+  Vector2d PixelToPlane(const Vector2d& p) {
+    double xp = p[0];
+    double yp = p[1];
+    
+    xp -= k[5];
+    yp -= k[6];
+
+    xp /= k[3];
+    yp /= k[4];
+
+    // Estimate distortion iteratively.
+    double x0 = xp;
+    double y0 = yp;
+    for (int i = 0; i < 3; ++i) {
+      double r2 = xp*xp + yp*yp;
+      double distort = 1./(1.0 + r2 * (k[0] + r2 * (k[1] + r2 * k[2])));
+
+      xp = x0 * distort;
+      yp = y0 * distort;
+    }
+
+    return Vector2d(xp, yp);
+  }
+
 };
 
 // A frame taken by a specific camera in a specific pose.
@@ -88,7 +133,7 @@ struct Observation {
   bool enabled() const { return !is_disabled; }
   bool disabled() const { return is_disabled; }
 
-  Vector2d pt;  // In [-1, 1] x [-1, 1]
+  Vector2d pt;  // In pixel coordinates.
   Vector2d error;  // For debugging: filled in by slam.
   Frame* frame;
   int is_disabled;
@@ -108,7 +153,8 @@ class TrackedPoint {
   TrackedPoint(const Vector4d& location, int id) :
     location_(location),
     id_(id),
-    flags_(0)
+    flags_(0),
+    bad_count_(0)
     { }
 
   enum Flags {
@@ -133,6 +179,13 @@ class TrackedPoint {
   // Return an observation. If idx is negative, then observations relative to the
   // most recent. -1 == most recent, -2 == previous most recent, etc.
   const Observation& observation(int idx) const {
+    if (idx >= 0) {
+      return observations_[idx];
+    } else {
+      return observations_[observations_.size() + idx];
+    }
+  }   
+  Observation& observation(int idx) {
     if (idx >= 0) {
       return observations_[idx];
     } else {
@@ -181,6 +234,7 @@ class TrackedPoint {
   Vector4d location_;  // Homogeneous location in world.
   int id_;
   int flags_;
+  int bad_count_;
   vector<Observation> observations_;
 };
 
@@ -204,6 +258,9 @@ struct LocalMap {
   // Discards errored observations. Return true if
   // no observations were discarded.
   bool Clean(double error_threshold);
+
+
+  void ApplyEpipolarConstraint();
 
   // Normalize back to constant scale.
   void Normalize();

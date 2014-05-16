@@ -264,7 +264,7 @@ bool Slam::SetupProblem(
       
     }
   }
-
+#if 0
   for (auto& cam : map->cameras) {
       auto loss = new ceres::CauchyLoss(5);
       ceres::CostFunction* cost_function =
@@ -275,7 +275,7 @@ bool Slam::SetupProblem(
                                 cam->k);
 
   }
-  
+#endif
 
   if (frame_set_.size() < 2) {
     cout << "Slam aborted due to frame set too small. " << frame_set_.size() << " and point set " << point_set_.size() << "\n";

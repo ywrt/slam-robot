@@ -163,6 +163,81 @@ void PrintObs(const Observation& o, const TrackedPoint& point) {
     );
 }
 
+// cam1 = R1 * w + T1 (from)
+// cam2 = R2 * w + T2 (to)
+//
+// cam1 - T1 = R1 * w;
+// R1^ (cam1 - T1) = w;
+// w = R1^ (cam1 - T1)
+// cam2 = R2 * R1^ * (cam1 - T1) + T2;
+// cam2 = R2 * R1^ * (cam1 - T1) + R2 * R1^ * R1 * R2^ * T2;
+// cam2 = R2 * R1^ * (cam1 - T1 + R1 * R2^ * T2)
+// cam2 = R2 * R1^ * (cam1 - (T1 - R1 * R2^ * T2))
+
+Matrix3d EssentialMatrix(Frame* from, Frame* to) {
+  // E = R t_x
+  //Matrix3d rotation = to->rotation().matrix() * from->rotation().inverse().matrix();
+  //Matrix3d rotation = from->rotation().inverse().matrix() * to->rotation().matrix();
+  Matrix3d rotation = to->rotation().matrix() * from->rotation().inverse().matrix();
+  Vector3d translation = from->translation() - rotation.inverse() * to->translation();
+  translation.normalize();
+
+  Matrix3d skew;
+  skew << 0, -translation[2], translation[1],
+          translation[2], 0, -translation[0],
+          -translation[1], translation[0], 0;
+
+  return rotation * skew;
+}
+
+// Check that each recently matched point obeys the epipolar constraint.
+void LocalMap::ApplyEpipolarConstraint() {
+  for (auto& point : points) {
+    // Only check points that have been solved by SLAM.
+    if (point->num_observations() < 2)
+      continue;
+    if (!point->feature_usable())
+      continue;
+    if (point->has_flag(TrackedPoint::Flags::BAD_FEATURE))
+      continue;
+
+    auto& obs1 = point->observation(-1);
+    Observation obs2 = point->observation(-2);
+    for (int i = 3;
+        i < point->num_observations() &&
+        //(obs1.frame->camera() == obs2.frame->camera() ||
+        (obs2.disabled()); ++i) {
+      obs2 = point->observation(-i);
+    }
+    if (obs1.frame->camera() == obs2.frame->camera() || obs2.disabled())
+      continue;
+
+    Vector2d p1 = obs1.frame->camera()->PixelToPlane(obs1.pt);
+    Vector2d p2 = obs2.frame->camera()->PixelToPlane(obs2.pt);
+    Vector3d h1(p1(0),p1(1), 1);
+    Vector3d h2(p2(0),p2(1), 1);
+
+    Matrix3d e = EssentialMatrix(obs1.frame, obs2.frame);
+
+    double threshold = 0.0015;
+
+    double r = h2.transpose() * e * h1;
+    printf("%c p %3d: r = %7.4f f%3d -> f%3d : dist %9.4f\n",
+        (fabs(r) > threshold) ? '*' : ' ',
+        point->id(), r,
+        obs1.frame->id(), obs2.frame->id(), point->position()[2]);
+    if (fabs(r) > threshold) {
+      if (point->num_observations() > 8) {
+        obs1.disable();
+        point->set_flag(TrackedPoint::Flags::MISMATCHED);
+      } else {
+        point->set_flag(TrackedPoint::Flags::BAD_FEATURE);
+      }
+    }
+  }
+}
+
+
 //
 // Invalidate observations that exceed the error threshold.
 // Invalidate points that are very close to frame poses.
@@ -196,7 +271,9 @@ bool LocalMap::Clean(double error_threshold) {
       // Is the reproject error too small to remain disabled? If so, enable.
       double err = o.error.norm();
       sum_err += err;
-      if (!o.enabled() && err < error_threshold * 0.75) {
+      // TODO: Fix re-enabling. It conflicts with points disabled due to the
+      // epipolar constraint.
+      if (!o.enabled() && err < error_threshold * 0.75 && 0) {
         // Hmmm. Observation now has small error. Restore it.
         o.enable();
         changed_points.insert(point.get());
@@ -322,7 +399,7 @@ void LocalMap::Stats() const {
         // Debug dump.
         //PrintObs(o, *point);
       }
-      if (!o.enabled()) {
+      if (!o.enabled() || !point->slam_usable()) {
         disabled_err_hist.add(err);
       } else {
         enabled_err_hist.add(err);
