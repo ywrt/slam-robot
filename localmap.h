@@ -20,7 +20,9 @@
 using namespace Eigen;
 using namespace std;
 
+class Frame;
 class TrackedPoint;
+class Observation;
 
 // Camera intrinsics.
 struct Camera {
@@ -79,6 +81,25 @@ struct Camera {
 
 };
 
+// An observation of a tracked point from a specific frame.
+struct Observation {
+//  Observation() : frame(nullptr), is_disabled(0) {}
+  Observation(Vector2d p, Frame* frame_ptr, TrackedPoint* tp) :
+      pt(p), frame(frame_ptr), point(tp), is_disabled(0) { }
+
+  void enable() { is_disabled = 0; }
+  void disable() { is_disabled = 1; }
+  bool enabled() const { return !is_disabled; }
+  bool disabled() const { return is_disabled; }
+
+  Vector2d pt;  // In pixel coordinates relative to frame.
+  Frame* frame;
+  TrackedPoint* point;
+  int is_disabled;
+
+  Vector2d error;  // For debugging: filled in by slam.
+};
+
 // A frame taken by a specific camera in a specific pose.
 class Frame {
  public:
@@ -86,7 +107,8 @@ class Frame {
     frame_id_(id),
     camera_(cam),
     rotation_{1, 0, 0, 0},
-    translation_{0, 0, 0} { }
+    translation_{0, 0, 0},
+    previous_(nullptr) { }
 
   // Project a tracked point into frame pixel space.
   bool Project(const Vector4d& point, Vector2d* result) const;
@@ -113,30 +135,33 @@ class Frame {
   const Camera* camera() const { return camera_; }
   Camera* camera() { return camera_; }
 
+  // Add a new observation of this point.
+  void AddObservation(
+      const Vector2d& p,
+      TrackedPoint* tp) {
+    observations_.push_back(std::unique_ptr<Observation>(
+          new Observation(p, this, tp)));
+  }
+
+  const vector<std::unique_ptr<Observation>>& observations() const { return observations_; }
+
+  // This frame is being kept. Add the observations to the
+  // cache in TrackedPoint.
+  void Commit();
+
+  void set_previous(Frame* f) { previous_ = f; }
+  Frame* previous() const { return previous_; }
+
+  // Debugging, use for frame-to-frame distances.
   double dist;
  private:
   int frame_id_;
   Camera* camera_;
   Quaterniond rotation_;
   Vector3d translation_;
-};
+  Frame* previous_;
 
-
-// An observation of a tracked point from a specific frame.
-struct Observation {
-//  Observation() : frame(nullptr), is_disabled(0) {}
-  Observation(Vector2d p, Frame* frame_ptr) :
-      pt(p), frame(frame_ptr), is_disabled(0) { }
-
-  void enable() { is_disabled = 0; }
-  void disable() { is_disabled = 1; }
-  bool enabled() const { return !is_disabled; }
-  bool disabled() const { return is_disabled; }
-
-  Vector2d pt;  // In pixel coordinates.
-  Vector2d error;  // For debugging: filled in by slam.
-  Frame* frame;
-  int is_disabled;
+  vector<std::unique_ptr<Observation>> observations_;
 };
 
 // A fully tracked point.
@@ -152,9 +177,9 @@ class TrackedPoint {
  public:
   TrackedPoint(const Vector4d& location, int id) :
     location_(location),
+    uncertainty_(1e8),
     id_(id),
-    flags_(0),
-    bad_count_(0)
+    flags_(0)
     { }
 
   enum Flags {
@@ -171,8 +196,8 @@ class TrackedPoint {
   Vector4d& location() { return location_; }
 
   // The known observations of this point.
-  const vector<Observation>& observations() const { return observations_; }
-  vector<Observation>& observations() { return observations_; }
+  const vector<Observation*>& observations() const { return observations_; }
+  //vector<Observation*>& observations() { return observations_; }
 
   // The number of observations of this point.
   int num_observations() const { return observations_.size(); }
@@ -180,12 +205,12 @@ class TrackedPoint {
   // most recent. -1 == most recent, -2 == previous most recent, etc.
   const Observation& observation(int idx) const {
     if (idx >= 0) {
-      return observations_[idx];
+      return *observations_[idx];
     } else {
-      return observations_[observations_.size() + idx];
+      return *observations_[observations_.size() + idx];
     }
   }   
-  Observation& observation(int idx) {
+  Observation* observation(int idx) {
     if (idx >= 0) {
       return observations_[idx];
     } else {
@@ -224,18 +249,24 @@ class TrackedPoint {
   }
   bool feature_usable() const { return !has_flag(MISMATCHED) & !has_flag(BAD_LOCATION); }
 
+  double uncertainty() const { return uncertainty_; }
+  void set_uncertainty(double u) { uncertainty_ = u; }
+
   // Add a new observation of this point.
-  void AddObservation(const Observation& obs);
+  void AddObservation(Observation* obs);
 
   // Clear incorrectly set flags.
   void CheckFlags();
 
  private:
   Vector4d location_;  // Homogeneous location in world.
+  double uncertainty_;
   int id_;
   int flags_;
-  int bad_count_;
-  vector<Observation> observations_;
+
+  // List of observations of this point. This is a cache: These
+  // pointers are owned in Frame, not here.
+  vector<Observation*> observations_;
 };
 
 //

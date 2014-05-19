@@ -11,6 +11,7 @@
 #include <ceres/ordered_groups.h>
 
 #include <map>
+#include <unordered_set>
 
 #include "project.h"
 
@@ -127,143 +128,164 @@ struct CameraStabilization {
 };
 
 
-void Slam::SetupParameterization() {
-  ceres::LocalParameterization* quaternion_parameterization =
-      new ceres::QuaternionParameterization;
-  for (auto frame : frame_set_) {
-    problem_->SetParameterization(frame->rotation().coeffs().data(),
-                                 quaternion_parameterization);
-  }
-
-#if 0
-  auto homogenous = new AutoDiffLocalParameterization<HomogenousPlus, 3, 3>;
-  for (auto& pt : point_set) {
-    problem_.SetParameterization(pt->location(), homogenous);
-  }
-#endif
-}
-
-void Slam::SetupConstantBlocks(
-    LocalMap* map,
-    std::function<bool (Frame* frame_idx)> solve_frame_p) {
-
-  if (!solve_frame_p)
-    return;  // Solve all frames == no constant frames.
-
-  cout << "Setting frames ";
-  for (auto& frame : frame_set_) {
-    if (solve_frame_p(frame))
-      continue;
-    cout << frame->id() << ", ";
-    problem_->SetParameterBlockConstant(frame->translation().data());
-    problem_->SetParameterBlockConstant(frame->rotation().coeffs().data());
-  }
-  cout << " to const.\n";
-
-  problem_->SetParameterBlockConstant(map->cameras[0]->k);
-  problem_->SetParameterBlockConstant(map->cameras[1]->k);
-}
 
 bool Slam::SetupProblem(
-    LocalMap* map,
     double range,
-    std::function<bool (Frame* frame_idx)> solve_frame_p) {
+    const std::map<Frame*, bool>& frames) {
   // Create residuals for each observation in the bundle adjustment problem. The
   // parameters for points are added automatically.
   problem_.reset(new ceres::Problem);
-  frame_set_.clear();
-  point_set_.clear();
 
-  auto loss = new ceres::CauchyLoss(range);
   //auto loss = new ceres::HuberLoss(0.02);
+  auto loss = new ceres::CauchyLoss(range);
 
-  // Search for the list of frames to be using. We use the set of
-  // all frames that reference points that are references by frames
-  // that need solving. 
-  // TODO: This is wasteful.
-  std::set<Frame*> frames_to_use;
-  for (auto& point : map->points) {
-    if (!point->slam_usable())
-      continue;  // Not (yet?) usable for SLAM problem.
+  // Frames that are not referenced by any usable observation.
+  std::unordered_set<Frame*> skip_frames(frames.size());
+  // Points referenced by a presented frame.
+  std::unordered_set<TrackedPoint*> point_set(100);
+  // Points that reference a frame being solved for.
+  std::unordered_set<TrackedPoint*> fluid_points(100);
 
-    bool use_point = false;
-    for (const auto& o : point->observations()) {
-      if (o.disabled()) {
+  for (const auto& pair : frames) {
+    Frame* frame = pair.first;
+    bool is_const = pair.second;
+
+    bool frame_used = false;
+    for (const auto& o : frame->observations()) {
+      if (o->disabled())
         continue;
-      }
+      if (0 && !o->point->slam_usable())
+        continue;  // Not (yet?) usable for SLAM problem.
 
-      if (solve_frame_p && !solve_frame_p(o.frame)) {
-        continue;  // Not using this frame for solving.
-      }
-
-      // We do want this point.
-      use_point = true;
-      break;
-    }
-    if (!use_point)
-      continue;
-
-    for (const auto& o : point->observations()) {
-      if (o.disabled())
-        continue;
-      frames_to_use.insert(o.frame);
-    }
-    point_set_.insert(point.get());
-  }
-
-  // Now add the set of points, observations, and frame poses to the
-  // SLAM problem.
-  for (auto point : point_set_) {
-    for (const auto& o : point->observations()) {
-      if (o.disabled())
-        continue;
-
-      if (!frames_to_use.count(o.frame))
-        continue;
-
-      // Each residual block takes a point and frame pose as input and outputs a 2
-      // dimensional residual. Internally, the cost function stores the observed
-      // image location and compares the reprojection against the observation.
       ceres::CostFunction* cost_function =
           new ceres::AutoDiffCostFunction<ReprojectionError, 2, 4, 3, 7, 4>(
-              new ReprojectionError(o.pt(0), o.pt(1)));
+              new ReprojectionError(o->pt(0), o->pt(1)));
 
       problem_->AddResidualBlock(cost_function,
                                 loss /* squared loss */,
-                                o.frame->rotation().coeffs().data(),
-                                o.frame->translation().data(),
-                                o.frame->camera()->k,
-                                point->location().data());
+                                o->frame->rotation().coeffs().data(),
+                                o->frame->translation().data(),
+                                o->frame->camera()->k,
+                                o->point->location().data());
+      frame_used = true;
+      point_set.insert(o->point);
+      if (!is_const)
+        fluid_points.insert(o->point);
+    }
 
-      frame_set_.insert(o.frame);
+    if (!frame_used)
+      skip_frames.insert(frame);
+  }
+
+  if ((frames.size() - skip_frames.size()) < 2) {
+    cout << "Slam aborted due to frame set too small. " << frames.size() << "\n";
+    return false;
+  }
+
+  // Add parameterization for the frame quarternion and mark
+  // frames that aren't being solved as const.
+  ceres::LocalParameterization* quaternion_parameterization =
+      new ceres::QuaternionParameterization;
+
+  std::set<int> const_set;
+  std::set<int> id_set;
+  for (const auto& pair : frames) {
+    Frame* frame = pair.first;
+    bool is_const = pair.second;
+
+    if (skip_frames.count(frame))
+      continue;
+
+    problem_->SetParameterization(frame->rotation().coeffs().data(),
+                                 quaternion_parameterization);
+
+    id_set.insert(frame->id());
+    if (is_const) {
+      problem_->SetParameterBlockConstant(frame->translation().data());
+      problem_->SetParameterBlockConstant(frame->rotation().coeffs().data());
+      const_set.insert(frame->id());
     }
   }
+
+  printf("Frames: ");
+  printf("Const[ ");
+  for (int id : const_set) { printf("%d, ", id); }
+  printf(" ],  Solving[ ");
+  for (int id : id_set) { if (!const_set.count(id)) printf("%d, ", id); }
+  printf(" ]\n");
+  const_set.clear();
+  id_set.clear();
+
+  // Mark points that are not referenced by a frame being solved for as const.
+  // Mark points that reference unpresented frames as const.
+  for (const auto& point : point_set) {
+    id_set.insert(point->id());
+    if (point->uncertainty() > 100)
+      continue;  // Not quite sure where the point is. Try harder.
+
+    if (!fluid_points.count(point)) {
+      problem_->SetParameterBlockConstant(point->location().data());
+      const_set.insert(point->id());
+      continue;
+    }
+
+    for (const auto& o : point->observations()) {
+      if (o->disabled())
+        continue;
+      if (frames.count(o->frame))
+        continue;  // is in the presented frame set.
+
+      // Point references a frame that's not presented. Mark it const
+      // as we can't safely solve it.
+      //problem_->SetParameterBlockConstant(point->location().data());
+      //const_set.insert(point->id());
+      break;
+    }
+  }
+
+  printf("Points: ");
+  printf("Const[ ");
+  for (int id : const_set) { printf("%d, ", id); }
+  printf(" ],  Solving[ ");
+  for (int id : id_set) { if (!const_set.count(id)) printf("%d, ", id); }
+  printf(" ]\n");
+  const_set.clear();
+  id_set.clear();
+
 
   // Constraint the frame-to-frame distances.
+  for (const auto& pair : frames) {
+    Frame* frame = pair.first;
+    bool is_const = pair.second;
 
-  if (1 || !solve_frame_p) {
+    if (is_const)
+      continue;  // Not being solved for.
+
+    if (skip_frames.count(frame))
+      continue;  // Not being solved for.
+
+    Frame* prev = frame->previous();
+    if (!frames.count(prev))
+      continue;  // Previous frame isn't in presented set.
+
+
+    // Weakly constrain the frame to be 150mm distant from the
+    // previous frame. This is assuming a stero camera setup
+    // with a 150mm baseline.
+    ceres::CostFunction* cost_function =
+        new ceres::AutoDiffCostFunction<FrameDistance, 1, 4, 3, 4, 3>(
+            new FrameDistance(150.));
     auto frame_loss = new ceres::CauchyLoss(15);
-    for (unsigned int i = 0; i < map->frames.size() - 1; ++i) {
-      auto f1 = map->frames[i].get();
-      auto f2 = map->frames[i+1].get();
-      if (!frame_set_.count(f1) || !frame_set_.count(f2))
-        continue;
 
-      // Consequtive frames in the problem.
-      ceres::CostFunction* cost_function =
-          new ceres::AutoDiffCostFunction<FrameDistance, 1, 4, 3, 4, 3>(
-              new FrameDistance(150.));
-
-      problem_->AddResidualBlock(cost_function,
-                                frame_loss /* squared loss */,
-                                f1->rotation().coeffs().data(),
-                                f1->translation().data(),
-                                f2->rotation().coeffs().data(),
-                                f2->translation().data());
-
-      
-    }
+    problem_->AddResidualBlock(
+        cost_function,
+        frame_loss /* squared loss */,
+        frame->rotation().coeffs().data(),
+        frame->translation().data(),
+        prev->rotation().coeffs().data(),
+        prev->translation().data());
   }
+
 #if 0
   for (auto& cam : map->cameras) {
       auto loss = new ceres::CauchyLoss(5);
@@ -277,29 +299,63 @@ bool Slam::SetupProblem(
   }
 #endif
 
-  if (frame_set_.size() < 2) {
-    cout << "Slam aborted due to frame set too small. " << frame_set_.size() << " and point set " << point_set_.size() << "\n";
-    return false;
-  }
 
   return true;
 }
 
-bool Slam::Run(LocalMap* map,
-               double range,
-               std::function<bool (Frame* frame_idx)> solve_frame_p) {
+bool Slam::SolveFrames(
+      LocalMap* map,
+      int num_to_solve,
+      int num_to_present,
+      double range) {
+
+  std::map<Frame*, bool> frames;
+
+  for (int i = 0; i < (int)map->frames.size(); ++i) {
+    Frame* frame = map->frames[map->frames.size() - i - 1].get();
+
+    if (i < num_to_solve)
+      frames[frame] = false;
+    else if ( i < num_to_present) 
+      frames[frame] = true;
+    else
+      break;
+  }
+
+  if (!SetupProblem(range, frames))
+    return false;
+
+  problem_->SetParameterBlockConstant(map->cameras[0]->k);
+  problem_->SetParameterBlockConstant(map->cameras[1]->k);
+
+  return Run(false);
+}
+
+bool Slam::SolveAllFrames(
+      LocalMap* map,
+      double range,
+      bool solve_cameras) {
+  std::map<Frame*, bool> frames;
+  for (const auto& frame : map->frames) {
+    frames[frame.get()] = false;
+  }
+
+  if (!SetupProblem(range, frames))
+    return false;
+
+  if (!solve_cameras) {
+    problem_->SetParameterBlockConstant(map->cameras[0]->k);
+    problem_->SetParameterBlockConstant(map->cameras[1]->k);
+  }
+
+  return Run(solve_cameras);
+}
+
+bool Slam::Run(bool fine) {
   // Create residuals for each observation in the bundle adjustment problem. The
   // parameters for cameras and points are added automatically.
 
   ceres::Solver::Options options;
-  if (!SetupProblem(map,
-        range,
-        solve_frame_p
-        ))
-    return false;
-
-  SetupParameterization();
-  SetupConstantBlocks(map, solve_frame_p);
 
   options.linear_solver_type = ceres::ITERATIVE_SCHUR;
   options.linear_solver_type = ceres::SPARSE_SCHUR;
@@ -308,7 +364,8 @@ bool Slam::Run(LocalMap* map,
   //options.use_inner_iterations = true;
   options.max_num_iterations = 1000;
   options.function_tolerance = 1e-7;
-  if (!solve_frame_p) {
+
+  if (fine) {
     options.max_num_iterations = 1000;
     options.function_tolerance = 1e-9;
   }
@@ -322,7 +379,7 @@ bool Slam::Run(LocalMap* map,
   ceres::Solver::Summary summary;
   ceres::Solve(options, problem_.get(), &summary);
 
-  if (!solve_frame_p) {
+  if (fine) {
     std::cout << summary.FullReport() << "\n";
   } else {
     std::cout << summary.BriefReport() << "\n";
@@ -339,21 +396,21 @@ double Slam::ReprojectMap(LocalMap* map) {
   // Update observation error for each point.
   double mean(0);
   double count(0);
-  for (auto& point : map->points) {
-    for (auto& o : point->observations()) {
-      o.error = o.pt;
+  for (auto& frame : map->frames) {
+    for (auto& o : frame->observations()) {
+      o->error = o->pt;
 
-      ReprojectionError project(o.pt(0), o.pt(1));
+      ReprojectionError project(o->pt(0), o->pt(1));
 
       bool result = project(
-              o.frame->rotation().coeffs().data(),
-              o.frame->translation().data(),
-              o.frame->camera()->k,
-              point->location().data(),
-              o.error.data());
+              frame->rotation().coeffs().data(),
+              frame->translation().data(),
+              frame->camera()->k,
+              o->point->location().data(),
+              o->error.data());
       if (!result)
         continue;  // Point can't be projected?
-      mean = mean + (o.error.norm() - mean) / (count + 1);
+      mean = mean + (o->error.norm() - mean) / (count + 1);
       ++count;
     }
   }

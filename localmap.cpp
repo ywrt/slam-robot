@@ -36,7 +36,7 @@ Vector4d Frame::Unproject(const Vector2d& point, double distance) const {
   return result;
 }
 
-void TrackedPoint::AddObservation(const Observation& obs) {
+void TrackedPoint::AddObservation(Observation* obs) {
   observations_.push_back(obs);
   CheckFlags();
 }
@@ -47,7 +47,7 @@ void TrackedPoint::CheckFlags() {
   if (has_flag(NO_OBSERVATIONS)) {
     int good = 0;
     for (const auto& o : observations_) {
-      if (!o.enabled())
+      if (!o->enabled())
         continue;
       ++good;
       if (good >= 2) {
@@ -63,14 +63,14 @@ void TrackedPoint::CheckFlags() {
     Vector3d base;
     bool has_base = false;
     for (const auto& o : observations_) {
-      if (!o.enabled())
+      if (!o->enabled())
         continue;
       if (!has_base) {
-        base = o.frame->position();
+        base = o->frame->position();
         has_base = true;
         continue;
       }
-      double dist = (o.frame->position() - base).norm();
+      double dist = (o->frame->position() - base).norm();
       // TODO: Lift out constant: minimum baseline distance.
       if (dist < 50) {
         continue;
@@ -83,8 +83,17 @@ void TrackedPoint::CheckFlags() {
   }
 }
 
+void Frame::Commit() {
+  for (const auto& obs : observations_) {
+    obs->point->AddObservation(obs.get());
+  }
+}
+
+
 Frame* LocalMap::AddFrame(Camera* cam) {
   std::unique_ptr<Frame> p(new Frame(frames.size(), cam));
+  if (frames.size())
+    p->set_previous(frames.back().get());
   frames.push_back(std::move(p));
   return frames.back().get();
 }
@@ -201,23 +210,23 @@ void LocalMap::ApplyEpipolarConstraint() {
     if (point->has_flag(TrackedPoint::Flags::BAD_FEATURE))
       continue;
 
-    auto& obs1 = point->observation(-1);
-    Observation obs2 = point->observation(-2);
+    Observation* obs1 = point->observation(-1);
+    Observation* obs2 = point->observation(-2);
     for (int i = 3;
         i < point->num_observations() &&
         //(obs1.frame->camera() == obs2.frame->camera() ||
-        (obs2.disabled()); ++i) {
+        (obs2->disabled()); ++i) {
       obs2 = point->observation(-i);
     }
-    if (obs1.frame->camera() == obs2.frame->camera() || obs2.disabled())
+    if (obs1->frame->camera() == obs2->frame->camera() || obs2->disabled())
       continue;
 
-    Vector2d p1 = obs1.frame->camera()->PixelToPlane(obs1.pt);
-    Vector2d p2 = obs2.frame->camera()->PixelToPlane(obs2.pt);
+    Vector2d p1 = obs1->frame->camera()->PixelToPlane(obs1->pt);
+    Vector2d p2 = obs2->frame->camera()->PixelToPlane(obs2->pt);
     Vector3d h1(p1(0),p1(1), 1);
     Vector3d h2(p2(0),p2(1), 1);
 
-    Matrix3d e = EssentialMatrix(obs1.frame, obs2.frame);
+    Matrix3d e = EssentialMatrix(obs1->frame, obs2->frame);
 
     double threshold = 0.0015;
 
@@ -225,10 +234,10 @@ void LocalMap::ApplyEpipolarConstraint() {
     printf("%c p %3d: r = %7.4f f%3d -> f%3d : dist %9.4f\n",
         (fabs(r) > threshold) ? '*' : ' ',
         point->id(), r,
-        obs1.frame->id(), obs2.frame->id(), point->position()[2]);
-    if (fabs(r) > threshold) {
+        obs1->frame->id(), obs2->frame->id(), point->position()[2]);
+    if (fabs(r) > threshold * 100) {
       if (point->num_observations() > 8) {
-        obs1.disable();
+        obs1->disable();
         point->set_flag(TrackedPoint::Flags::MISMATCHED);
       } else {
         point->set_flag(TrackedPoint::Flags::BAD_FEATURE);
@@ -269,32 +278,32 @@ bool LocalMap::Clean(double error_threshold) {
     for (auto& o : point->observations()) {
       // Is the reproject error too large? if so, maybe disable the obs.
       // Is the reproject error too small to remain disabled? If so, enable.
-      double err = o.error.norm();
+      double err = o->error.norm();
       sum_err += err;
       // TODO: Fix re-enabling. It conflicts with points disabled due to the
       // epipolar constraint.
-      if (!o.enabled() && err < error_threshold * 0.75 && 0) {
+      if (!o->enabled() && err < error_threshold * 0.75 && 0) {
         // Hmmm. Observation now has small error. Restore it.
-        o.enable();
+        o->enable();
         changed_points.insert(point.get());
-        printf("p %3d, f %3d: Re-enabled point.\n", point->id(), o.frame->id());
-        PrintObs(o, *point);
+        printf("p %3d, f %3d: Re-enabled point.\n", point->id(), o->frame->id());
+        PrintObs(*o, *point);
       } 
 
       // Is the point too close to the camera? This is an indication of a badly 
       // tracked point (bundle adjustment is bringing it singular).
       // First, move the point into frame space.
-      // if (o.frame->position() - point->position()).norm() < 1) {
-      Vector3d pos = o.frame->rotation() * point->position() + o.frame->translation();
+      // if (o->frame->position() - point->position()).norm() < 1) {
+      Vector3d pos = o->frame->rotation() * point->position() + o->frame->translation();
       if (pos[2] < 1) {
-        printf("p %3d, f %3d: Point is too close to camera. %f\n", point->id(), o.frame->id(), pos[2]);
+        printf("p %3d, f %3d: Point is too close to camera. %f\n", point->id(), o->frame->id(), pos[2]);
         point->set_flag(TrackedPoint::Flags::BAD_LOCATION);
         changed_points.insert(point.get());
         break;
       }
-      if (o.enabled() && err > error_threshold) {
+      if (o->enabled() && err > error_threshold) {
           // If the error exceeds the threshold, add it to the list to possibly mark as bad.
-          errmap.insert({err, {point.get(), &o} });
+          errmap.insert({err, {point.get(), o} });
       }
 
 
@@ -309,11 +318,13 @@ bool LocalMap::Clean(double error_threshold) {
 #endif
 
     double avg_err = sum_err / point->num_observations();
-    if (avg_err> 1.5 && point->num_observations() > 4) {
+    if (avg_err > 1.5 && point->num_observations() > 4) {
       printf("p %3d: Bad feature\n", point->id());
       point->set_flag(TrackedPoint::Flags::BAD_FEATURE);
       changed_points.insert(point.get());
     }
+
+    point->set_uncertainty(avg_err);
   }
   
   // Mark bad observations in order from worst to best, stopping when the
@@ -377,8 +388,11 @@ void LocalMap::Stats() const {
     if (point->has_flag(TrackedPoint::Flags::NO_BASELINE))
       continue;
 
-    printf("p %3d (%d matches) %s%s%s%s%s\n",
+    auto loc = point->position();
+    printf("p %3d (%d matches) [%9.2f, %9.2f, %9.2f] %s%s%s%s%s%s\n",
         point->id(), point->num_observations(),
+        loc[0], loc[1], loc[2],
+        point->slam_usable() ? "slam " : "",
         point->has_flag(TrackedPoint::Flags::BAD_LOCATION) ? "BAD_LOCATION " : "",
         point->has_flag(TrackedPoint::Flags::NO_BASELINE) ? "NO_BASELINE " : "",
         point->has_flag(TrackedPoint::Flags::NO_OBSERVATIONS) ? "NO_OBSERVATIONS " : "",
@@ -386,27 +400,27 @@ void LocalMap::Stats() const {
         point->has_flag(TrackedPoint::Flags::BAD_FEATURE) ? "BAD_FEATURE " : ""
         );
     for (auto& o : point->observations()) {
-      double err = o.error.norm() ;
+      double err = o->error.norm() ;
       printf("  f %3d: [%c] err %6.4f rad %6.1f [%8.4f, %8.4f] err [%8.4f, %8.4f]\n",
-          o.frame->id(),
-          o.disabled() ? 'D' : ' ',
+          o->frame->id(),
+          o->disabled() ? 'D' : ' ',
           err,
-          o.pt.norm() ,
-          o.pt(0), o.pt(1),
-          o.error(0) , o.error(1) 
+          o->pt.norm() ,
+          o->pt(0), o->pt(1),
+          o->error(0) , o->error(1) 
           );
-      if ((err < 50 && o.disabled()) || err > 5.) {
+      if ((err < 50 && o->disabled()) || err > 5.) {
         // Debug dump.
         //PrintObs(o, *point);
       }
-      if (!o.enabled() || !point->slam_usable()) {
+      if (!o->enabled() || !point->slam_usable()) {
         disabled_err_hist.add(err);
       } else {
         enabled_err_hist.add(err);
       }
     }
   }
-  printf("%d slam points from %zd total points (%d no base, %d no obs, %d bad loc, %d bad feat\n",
+  printf("%d slam points from %zd total points (%d no base, %d no obs, %d bad loc, %d bad feat)\n",
       slam, points.size(),
       no_base, no_obs, bad_loc, bad_feat);
 
@@ -426,12 +440,14 @@ void LocalMap::Stats() const {
       ddist = (pos - frames[i-2]->position()).norm();
     }
 
-    printf("Frame %3d : [ % 9.4f, % 9.4f, % 9.4f ] distance %8.1f ddist %8.1f fdist %8.1f\n",
+    auto rot = f->rotation();
+    printf("Frame %3d : [ % 9.4f, % 9.4f, % 9.4f ] distance %8.1f ddist %8.1f fdist %8.1f [%f,%f,%f,%f]\n",
         f->id(),
         pos(0), pos(1), pos(2),
         distance,
         ddist,
-        f->dist
+        f->dist,
+        rot.w(), rot.x(), rot.y(), rot.z()
         );
   }
 }

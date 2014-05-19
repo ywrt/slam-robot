@@ -160,45 +160,45 @@ void DrawDebug(const LocalMap& map, const Camera& cam, Mat* img) {
 
   for (const auto& point : map.points) {
     // Always has at least one observation.
-    const auto& obs = point->observation(-1);
+    const Observation* obs = point->observation(-1);
 
     // If it doesn't appear in this frame, but does appear in the previous
     // frame, draw it as a blue cross.
-    if (obs.frame->id() == frame_id - 1) {
-      DrawCross(&out, cam, obs.pt, 2, Scalar(255,0,0));
+    if (obs->frame->id() == frame_id - 1) {
+      DrawCross(&out, cam, obs->pt, 2, Scalar(255,0,0));
       continue;
     }
 
     // If it doesn't appear in this frame, skip it.
-    if (obs.frame->id() != frame_id)
+    if (obs->frame->id() != frame_id)
       continue;
 
     // If it has only 1 observation, it's a new point: Draw it as a
     // green cross.
     if (point->num_observations() == 1) {
-      DrawCross(&out, cam, obs.pt, 2, Scalar(0,255,0));
+      DrawCross(&out, cam, obs->pt, 2, Scalar(0,255,0));
       continue;
     }
 
     // It's a tracked point. Draw the current location as a red cross,
     // and a line back to the previous observation. If the current observation
     // is disabled, then draw it as a white line (else a black line).
-    const auto& prev = point->observation(-2);
-    if (prev.frame->id() == frame_id - 1) {
+    const Observation* prev = point->observation(-2);
+    if (prev->frame->id() == frame_id - 1) {
       Scalar c(0,0,0);
-      if (obs.disabled()) {
+      if (obs->disabled()) {
         // Bad match.
         c = Scalar(255,255,255);
         cout << point->id() << " is a bad point\n";
       }
-      DrawLine(&out, cam, prev.pt, obs.pt, c);
+      DrawLine(&out, cam, prev->pt, obs->pt, c);
     }
-    DrawCross(&out, cam, obs.pt, 3, Scalar(0,0,255));
+    DrawCross(&out, cam, obs->pt, 3, Scalar(0,0,255));
 
     // Label with the point id.
     char buff[20];
     sprintf(buff, "%d", point->id());
-    DrawText(&out, cam, buff, obs.pt);
+    DrawText(&out, cam, buff, obs->pt);
   }
 }
 
@@ -236,8 +236,8 @@ void CallBackFunc(int event, int x, int y, int flags, void* userdata) {
 
     double min_dist = 1e2;
     for (const auto& point : lmap->points) {
-      const auto& obs = point->observation(-1);
-      double n = (obs.pt - pt).norm();
+      const Observation* obs = point->observation(-1);
+      double n = (obs->pt - pt).norm();
       if (n < 50 && n < min_dist) {
         p = point.get();
         min_dist = n;
@@ -254,7 +254,7 @@ void CallBackFunc(int event, int x, int y, int flags, void* userdata) {
   point_id = p->id();
   sprintf(buff, "%d", p->id());
 
-  Vector2d loc = p->observation(-1).pt;
+  Vector2d loc = p->observation(-1)->pt;
 
   cv::putText(out, buff, Point2f(loc(0), loc(1)), FONT_HERSHEY_PLAIN, 0.7, Scalar(128,255,0));
   cv::imshow("Left", out);
@@ -273,10 +273,10 @@ void CallBackFunc(int event, int x, int y, int flags, void* userdata) {
   const int scale = 8;
   int num = 1;
   for (const auto& morig : plist) {
-    const auto& obs = p->observation(-num++);
+    const Observation* obs = p->observation(-num++);
     Vector2d center;
-    obs.frame->Project(p->location(), &center);
-    center = (center - obs.pt);
+    obs->frame->Project(p->location(), &center);
+    center = (center - obs->pt);
     center += Vector2d(0.5 * morig.size().width, 0.5 * morig.size().height);
     center *= scale;
 
@@ -429,8 +429,10 @@ int main(int argc, char*argv[]) {
     // by 150mm along the X axis.
     if (map.frames.size() == 1) {
       frame_ptr->translation() = Vector3d::Zero();
+      frame_ptr->rotation().setIdentity();
     } else if (map.frames.size() == 2) {
       frame_ptr->translation() = -Vector3d::UnitX() * kBaseline;
+      frame_ptr->rotation() = map.frames[frame_id - 1]->rotation();
     } else {
       // Initialize pose from the two frames ago. (i.e. the previous frame
       // for this camera).
@@ -450,13 +452,12 @@ int main(int argc, char*argv[]) {
     // the LocalMap.
     tracking.Track(color, frame_ptr, camera, &map, 
         [&]() -> bool {
-          bool ret = slam.Run(&map,
-              10.,
-              [&](Frame* frame) -> bool {
-                return frame->id() == frame_id;
-              });
-          return ret;
+          return slam.SolveFrames(&map,
+              1, 3,  // Present 3 frames, solve 1.
+              20.);
         });
+
+    frame_ptr->Commit();
 
     // If there's not a previous image, then we can't run comparisons
     // against it: Just skip to getting another image.
@@ -469,31 +470,27 @@ int main(int argc, char*argv[]) {
     // (and all world points) while holding all other frame poses
     // constant.
    
-    if (slam.Run(&map,
-            2.,
-            [=](Frame* frame) -> bool {
-              return frame->id() == frame_id;
-            })) {
+    if (slam.SolveFrames(&map,
+            2, 5,  // Present 5 solves, solve 2.
+            2.)) {
       slam.ReprojectMap(&map);
       map.Clean(kErrorThreshold);
     }
-
-    map.ApplyEpipolarConstraint();
 
     // Occasionally run bundle adjustment over the previous 10 frames.
     if (frame_id < 10 || (frame_id % 5) == 0) {
       // Then solve all frame poses.
       //slam.Run(&map, nullptr);
       // Solve the last 10 frame poses.
-      if (!slam.Run(&map,
-          2.,
-          [=](Frame* frame)-> bool {
-            return frame->id() >= (frame_id - 10);
-          }))
-        break;  // Failed to run SLAM.
+      if (!slam.SolveFrames(&map,
+            10, 20,  // Solve 10 frames out of 20 presented.
+            2.))
+        break;
       slam.ReprojectMap(&map);
       map.Clean(kErrorThreshold);
     }
+
+    map.ApplyEpipolarConstraint();
 
     // Rotate and scale the map back to a standard baseline.
     double err1 = slam.ReprojectMap(&map);
@@ -523,24 +520,25 @@ int main(int argc, char*argv[]) {
 
     have_image = true;
 
-    //if (!(frame_id% 20))
-      cv::waitKey(0);
+    //slam.ReprojectMap(&map);
+    //map.Stats();
 
-    if ((frame_id % 20) == 0) {
+    //if (!(frame_id% 20))
+    cv::waitKey(0);
+
+    if (0 && (frame_id % 20) == 0) {
       // Print some debugging stats to STDOUT.
       // Re-run slam with increasingly tight rejection of outliers.
-      slam.Run(&map, 10, [](Frame*)->bool { return true; });
-      slam.Run(&map, 5, [](Frame*)->bool { return true; });
-      slam.Run(&map, 2, [](Frame*)->bool { return true; });
-      //slam.Run(&map, 1, [](Frame*)->bool { return true; });
-      //slam.Run(&map, 0.7, [](Frame*)->bool { return true; });
+      slam.SolveAllFrames(&map, 10, false);
+      slam.SolveAllFrames(&map, 5, false);
+      slam.SolveAllFrames(&map, 2, false);
       map.Stats();
 
       map.cameras[0]->Reset();
       map.cameras[1]->Reset();
 
       // Run total bundle adjustment including camera instrinsics.
-      slam.Run(&map, 1, nullptr);
+      slam.SolveAllFrames(&map, 2, true);
       printf("k1 k2 k3 fx fy cx cy\n");
       printf(" %8.5f, %8.5f, %8.5f, %8.5f, %8.5f, %8.5f, %8.5f\n",
           map.cameras[0]->k[0],
@@ -565,7 +563,7 @@ int main(int argc, char*argv[]) {
       cv::waitKey(0);
       map.cameras[0]->Reset();
       map.cameras[1]->Reset();
-      slam.Run(&map, 5, [](Frame*)->bool { return true; });
+      slam.SolveAllFrames(&map, 2, false);
     }
 
     if (frame_id == 400) break;

@@ -117,8 +117,8 @@ void AddNewFeatures(const Mat& img, const map<Feature*, Point2f>& matches, vecto
   vector<Point2f> corners;
   goodFeaturesToTrack(img,
       corners,
-      100,  // Max corners.
-      0.05,  // Max quality ratio.
+      120,  // Max corners.
+      0.01,  // Max quality ratio.
       20  // Minimum distance between features.
       );
 
@@ -201,7 +201,6 @@ bool TrackFeature(int id, FeatureTracker* tracker, const View& from, const Point
 void FindMatches(
     const FeatureSet& features,
     const View& view,
-    bool second_pass,
     FeatureTracker* tracker,
     std::map<Feature*, Point2f>* matches) {
   // For each feature, try and propogate forward into this view (if not
@@ -209,7 +208,6 @@ void FindMatches(
 
   // If we're on the second pass, we only looking at projectable points,
   // and we're looking doing fine matching.
-  int levels = second_pass ? 3 : 6;
   for (auto& f : features) {
     if (matches->count(f.get()))
       continue;
@@ -219,31 +217,37 @@ void FindMatches(
       const auto& to_view = view;
       auto to_pt = from_pt;
 
+      int levels = 3;
+      if (f->point->uncertainty() > 100)
+        levels = 6;
+
       // Use the projected point location as a starting point in
       // searching for a match.
-      if (f->point->slam_usable()) {
-        Eigen::Vector2d p;
+      Eigen::Vector2d p;
+      if (0 || f->point->uncertainty() < 100) {
         if (to_view.frame->Project(f->point->location(), &p)) {
           to_pt.x = p(0);
           to_pt.y = p(1);
         }
-      } else if (second_pass) {
-        continue;  // Only tried and failed on the first pass.
       }
 
       //debug = (f->point->id() == 40);
 
-      if (to_pt.x < 0 || to_pt.y < 0 || to_pt.x >= view.original.cols || to_pt.y > view.original.rows)
+      if (to_pt.x < 0 || to_pt.y < 0 || to_pt.x >= view.original.cols || to_pt.y > view.original.rows) {
         continue;  // OOBs
+      }
 
-      if (!TrackFeature(f->point->id(), tracker, from_view, from_pt, to_view, levels, &to_pt))
-        continue;
+      if (!TrackFeature(f->point->id(), tracker, from_view, from_pt, to_view, levels, &to_pt)) {
+        if (levels == 6 || !TrackFeature(f->point->id(), tracker, from_view, from_pt, to_view, 6, &to_pt)) {
+          continue;
+        }
+      }
 
       (*matches)[f.get()] = to_pt;
 
       // Add the new observations to the LocalMap.
       Vector2d frame_point(to_pt.x, to_pt.y);
-      f->point->AddObservation({frame_point, to_view.frame});
+      to_view.frame->AddObservation(frame_point, f->point);
 
       // Debugging.
       cv::Mat patch;
@@ -321,14 +325,14 @@ bool Matcher::Track(const Mat& img, Frame* frame, int camera, LocalMap* map, std
   // matches propogated forward into the current view.
   std::map<Feature*, Point2f> matches;
 
-  FindMatches(d.features, *view, false, &tracker, &matches);
+  FindMatches(d.features, *view, &tracker, &matches);
 
-  if (1 || matches.size() < 40) {
+  if (0 || matches.size() < 40) {
     int before = matches.size();
     if (update_frames != nullptr) {
       if (update_frames()) {
         // Inferred position of Frame* has been updated, so try again for matching points.
-        FindMatches(d.features, *view, true, &tracker, &matches);
+        FindMatches(d.features, *view, &tracker, &matches);
       }
     }
     printf("Started with %d, grew to %d after additional matching\n", before, (int) matches.size());
@@ -337,8 +341,7 @@ bool Matcher::Track(const Mat& img, Frame* frame, int camera, LocalMap* map, std
   //CleanDuplicates(&matches);
 
   // If there are insufficient trackable features, add new features from the
-  // current image that aren't too close to an existing feature. Pass in a
-  // lambda to generate feature IDs.
+  // current image that aren't too close to an existing feature.
   // TODO: Lift out constant.
   if (matches.size() >= 40)
     return true;
@@ -363,9 +366,12 @@ bool Matcher::Track(const Mat& img, Frame* frame, int camera, LocalMap* map, std
     // Add a new TrackedPoint to the local map.
     // Use Frame::Unproject to initialize the world space location of the tracked point.
     Feature* f = new Feature;
-    auto location = view->frame->Unproject(frame_point / 530., 1500);
+    Vector2d plane_pt = view->frame->camera()->PixelToPlane(frame_point);
+
+    // 2500 == Initial guess at distance.
+    auto location = view->frame->Unproject(plane_pt, 2000);
     f->point = map->AddPoint(d.next_fid++, location);
-    f->point->AddObservation({frame_point, view->frame});
+    view->frame->AddObservation(frame_point, f->point);
 
     f->matches[view] = pt;
     d.features.insert(unique_ptr<Feature>(f));

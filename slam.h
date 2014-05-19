@@ -23,10 +23,16 @@ class Slam {
   Slam();
   virtual ~Slam();
 
-  bool Run(LocalMap* map,
-           double range,
-           std::function<bool (Frame* frame_idx)> solve_frame_p
-           );
+  bool SolveFrames(
+      LocalMap* map,
+      int num_to_solve,
+      int num_to_present,
+      double range);
+
+  bool SolveAllFrames(
+      LocalMap* map,
+      double range,
+      bool solve_cameras);
 
   // TODO: This belong in LocalMap which means the projection
   // should be lifted out.
@@ -44,14 +50,11 @@ class Slam {
   std::set<Frame*> frame_set_;
   std::set<TrackedPoint*> point_set_;
 
-  void SetupParameterization();
-  void SetupConstantBlocks(
-      LocalMap* map,
-      std::function<bool (Frame* frame_idx)> solve_frame_p);
   bool SetupProblem(
-      LocalMap* map,
       double range,
-      std::function<bool (Frame* frame_idx)> solve_frame_p);
+      const std::map<Frame*, bool>& frames);
+
+  bool Run(bool fine);
 
   int iterations_;
   double error_;
