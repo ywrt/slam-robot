@@ -128,7 +128,7 @@ struct CameraStabilization {
 };
 
 
-
+// Solve some set of frame poses and point locations.
 bool Slam::SetupProblem(
     double range,
     const std::map<Frame*, bool>& frames) {
@@ -303,6 +303,7 @@ bool Slam::SetupProblem(
   return true;
 }
 
+// Solve a contiguous subset of frames.
 bool Slam::SolveFrames(
       LocalMap* map,
       int num_to_solve,
@@ -331,6 +332,8 @@ bool Slam::SolveFrames(
   return Run(false);
 }
 
+
+// Solve every frame.
 bool Slam::SolveAllFrames(
       LocalMap* map,
       double range,

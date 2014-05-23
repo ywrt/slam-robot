@@ -1,17 +1,14 @@
 //
 // 2. Relative mapping for points. (i.e bearing + range relative to initial observed frame).
 // 3. Triangulate points for initialization after there are known poses.
-// 4. First solve frame pose, and then unknown points.
-// 6. Bundle adjustment failure.
-// 7. Remove points behind cameras.
-// 8. Don't solve the entire world every time!
 // 9. Use a tree or graph of keyframes.
 // 10. Consider loop closing when adding new points.
 // 11. Stop processing new frames when stationary.
 // 12. Add motion model.
 // 13. Extract patches and display in GL.
-// 14. Optimize camera parameters.
-//
+// 14. Add motor/servo control.
+// 15. Run full slam in background thread.
+// 16. Run fully threaded.
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
