@@ -44,6 +44,14 @@ $(TARGET): $(OBJS) main.o
 %_run: %_test $(OBJS)
 	./$(@:%_run=%_test)
 
+push:
+	git commit -a && git push
+
+pull:
+	git fetch upstream
+	git merge upstream/master
+
+
 $(DEPS): $(wildcard *.cpp) $(wildcard *.h) Makefile
 	$(CXX) $(CXXFLAGS) -MM $(wildcard *.cpp) > $(DEPS)
 
