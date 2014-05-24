@@ -140,6 +140,11 @@ class ImageSourceDuo : public ImageSource {
       printf("Failed to open video file: %s\n", filename2_);
       return false;
     }
+    cam1_.set(CV_CAP_PROP_FRAME_WIDTH, 640);
+    cam2_.set(CV_CAP_PROP_FRAME_WIDTH, 640);
+
+    cam1_.set(CV_CAP_PROP_FPS, 10);
+    cam2_.set(CV_CAP_PROP_FPS, 10);
     return true;
   }
 
