@@ -22,7 +22,6 @@
 #include "localmap.h"
 #include "slam.h"
 #include "matcher.h"
-#include "gl.h"
 
 using namespace std;
 using namespace cv;
