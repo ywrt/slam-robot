@@ -3,6 +3,11 @@
 
 #include <eigen3/Eigen/Eigen>
 
+template<typename T>
+double jtod(const T& v) {
+  return *((double*)(&v));
+}
+
 struct ProjectPoint {
   template <typename T>
   bool operator()(
@@ -19,8 +24,10 @@ struct ProjectPoint {
     Eigen::Matrix<T, 3, 1> p = q * mpoint + translate * point[3];
 
     // Don't project points that are effectively behind the intrinsics lens.
-    if (p[2] < 0.001 * point[3])
+    if (p[2] < 0.001 * point[3]) {
+      printf("Fail point [%f, %f, %f]\n", jtod(p[0]), jtod(p[1]), jtod(p[2]));
       return false;
+    }
 
     // Project onto the image plane.
     // There isn't a '/ point[3]' as it cancels out: The full expression is

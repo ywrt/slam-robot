@@ -353,9 +353,6 @@ int main(int argc, char*argv[]) {
   google::ParseCommandLineFlags(&argc, &argv, true);
   google::InitGoogleLogging(argv[0]);
 
-  move_vehicle(); 
-  return 0;
-
   if (FLAGS_drawdebug) {
     cv::namedWindow("Left", CV_WINDOW_AUTOSIZE );// Create a window for display.
     cv::namedWindow("Right", CV_WINDOW_AUTOSIZE );// Create a window for display.
@@ -367,7 +364,7 @@ int main(int argc, char*argv[]) {
 
   std::unique_ptr<ImageSource> cam;
   if (argc == 1) {
-    cam.reset(new ImageSourceDuo(argv[1], argv[2]));
+    cam.reset(new ImageSourceDuo);
   } else if (argc == 2) {
     cam.reset(new ImageSourceMono(argv[1]));
   } else if (argc == 3) {

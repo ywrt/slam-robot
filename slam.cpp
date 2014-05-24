@@ -154,7 +154,7 @@ bool Slam::SetupProblem(
     for (const auto& o : frame->observations()) {
       if (o->disabled())
         continue;
-      if (0 && !o->point->slam_usable())
+      if (!o->point->slam_usable())
         continue;  // Not (yet?) usable for SLAM problem.
 
       ceres::CostFunction* cost_function =
@@ -411,8 +411,9 @@ double Slam::ReprojectMap(LocalMap* map) {
               frame->camera()->k,
               o->point->location().data(),
               o->error.data());
-      if (!result)
+      if (!result) {
         continue;  // Point can't be projected?
+      }
       mean = mean + (o->error.norm() - mean) / (count + 1);
       ++count;
     }
