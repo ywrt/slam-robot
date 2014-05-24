@@ -22,6 +22,7 @@
 #include "localmap.h"
 #include "slam.h"
 #include "matcher.h"
+#include "vehicle.h"
 
 using namespace std;
 using namespace cv;
@@ -338,6 +339,9 @@ int main(int argc, char*argv[]) {
   // gl_init(argc, argv);
   google::ParseCommandLineFlags(&argc, &argv, true);
   google::InitGoogleLogging(argv[0]);
+
+  move_vehicle(); 
+  return 0;
 
   if (argc < 2) {
     fprintf(stderr, "Usage: slam left.avi right.avi\n");
