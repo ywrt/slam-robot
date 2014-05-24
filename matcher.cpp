@@ -8,12 +8,15 @@
 #include <deque>
 #include <opencv2/opencv.hpp>
 #include <glog/logging.h>
+#include <gflags/gflags.h>
 #include <memory>
 
 #include "localmap.h"
 #include "hessian.h"
 
 #include "matcher.h"
+
+DECLARE_bool(drawdebug);
 
 typedef HessianTracker FeatureTracker;
 typedef FeatureTracker::Pyramid Pyramid;
@@ -82,6 +85,10 @@ void ShowPatches(
     const vector<T>& p1,
     const vector<T>& p2,
     const vector<T>& p3) {
+
+  if (!FLAGS_drawdebug)
+    return;
+
   const int scale = 15;
 
   cv::Size s = p1[0].size;

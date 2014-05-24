@@ -18,11 +18,15 @@
 #include <eigen3/Eigen/Eigen>
 
 #include <glog/logging.h>
+#include <gflags/gflags.h>
 
 #include "localmap.h"
 #include "slam.h"
 #include "matcher.h"
 #include "vehicle.h"
+
+
+DEFINE_bool(drawdebug, true, "Show debugging display");
 
 using namespace std;
 using namespace cv;
@@ -122,6 +126,10 @@ class ImageSourceDuo : public ImageSource {
   ImageSourceDuo(const char* filename1, const char* filename2) :
       filename1_(filename1), filename2_(filename2),
       cam1_(filename1), cam2_(filename2) {}
+
+  ImageSourceDuo() :
+      filename1_("left"), filename2_("right"),
+      cam1_(0), cam2_(1) {}
 
   bool Init() {
     if (!cam1_.isOpened()) {
@@ -343,23 +351,25 @@ int main(int argc, char*argv[]) {
   move_vehicle(); 
   return 0;
 
-  if (argc < 2) {
-    fprintf(stderr, "Usage: slam left.avi right.avi\n");
-    exit(1);
+  if (FLAGS_drawdebug) {
+    cv::namedWindow("Left", CV_WINDOW_AUTOSIZE );// Create a window for display.
+    cv::namedWindow("Right", CV_WINDOW_AUTOSIZE );// Create a window for display.
+    cv::moveWindow("Left", 1440, 0);
+    cv::moveWindow("Right", 1440, 780);
+
+    setMouseCallback("Left", CallBackFunc, NULL);
   }
 
-  cv::namedWindow("Left", CV_WINDOW_AUTOSIZE );// Create a window for display.
-  cv::namedWindow("Right", CV_WINDOW_AUTOSIZE );// Create a window for display.
-  cv::moveWindow("Left", 1440, 0);
-  cv::moveWindow("Right", 1440, 780);
-
-  setMouseCallback("Left", CallBackFunc, NULL);
-
   std::unique_ptr<ImageSource> cam;
-  if (argc == 2) {
+  if (argc == 1) {
+    cam.reset(new ImageSourceDuo(argv[1], argv[2]));
+  } else if (argc == 2) {
     cam.reset(new ImageSourceMono(argv[1]));
   } else if (argc == 3) {
     cam.reset(new ImageSourceDuo(argv[1], argv[2]));
+  } else {
+    printf("Too many args\n");
+    return 1;
   }
  
   // Our knowledge of the 3D world. 
@@ -500,31 +510,33 @@ int main(int argc, char*argv[]) {
     CHECK_NEAR(err1, err2, 1e-1);
 
     // Draw observation history onto the left frame.
-    Mat out1 = prev.clone();
-    DrawDebug(map, *(map.cameras[camera ^ 1].get()), &out1);
-    Mat out2 = color.clone();
-    DrawDebug(map, *(map.cameras[camera].get()), &out2);
+    if (FLAGS_drawdebug) {
+      Mat out1 = prev.clone();
+      DrawDebug(map, *(map.cameras[camera ^ 1].get()), &out1);
+      Mat out2 = color.clone();
+      DrawDebug(map, *(map.cameras[camera].get()), &out2);
 
-    if (camera&1) {
-      cv::imshow("Left", out1);
-      cv::imshow("Right", out2);
-      left_image = out1;
-      left_cam = map.cameras[0].get();
-    } else {
-      cv::imshow("Left", out2);
-      cv::imshow("Right", out1);
-      left_image = out2;
-      left_cam = map.cameras[0].get();
+      if (camera&1) {
+        cv::imshow("Left", out1);
+        cv::imshow("Right", out2);
+        left_image = out1;
+        left_cam = map.cameras[0].get();
+      } else {
+        cv::imshow("Left", out2);
+        cv::imshow("Right", out1);
+        left_image = out2;
+        left_cam = map.cameras[0].get();
+      }
     }
     prev = color;
-
     have_image = true;
 
     //slam.ReprojectMap(&map);
     //map.Stats();
 
     //if (!(frame_id% 20))
-    cv::waitKey(0);
+    if (FLAGS_drawdebug)
+      cv::waitKey(0);
 
     if (0 && (frame_id % 20) == 0) {
       // Print some debugging stats to STDOUT.
@@ -566,7 +578,7 @@ int main(int argc, char*argv[]) {
       slam.SolveAllFrames(&map, 2, false);
     }
 
-    if (frame_id == 400) break;
+    if (frame_id == 400 && FLAGS_drawdebug) break;
   }
 
   //map.Stats();
