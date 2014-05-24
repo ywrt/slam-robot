@@ -116,4 +116,22 @@ int move_vehicle() {
     motor.stop();
     return 0;
 }
-      
+
+
+void vehicle_stop() {
+    Usb usb;
+
+    cout << "Starting servos\n";
+    PololuMaestro servos(&usb);
+    servos.Init();
+
+    cout << "Starting motor\n";
+    PololuSMC motor(&usb);
+    motor.Init();
+    motor.resume();
+
+    servos.SetTarget(0, 0);
+    servos.SetTarget(1, 0);
+
+    motor.stop();
+}

@@ -40,6 +40,8 @@ test: $(DEPS) $(TESTS:=_run)
 
 $(TARGET): $(OBJS) main.o
 
+stop: vehicle.o stop.o
+
 %_test: %_test.o $(OBJS)
 	$(CXX) -o $@ $^ $(LDFLAGS) $(LDLIBS) -lgtest
 
