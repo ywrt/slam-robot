@@ -334,16 +334,16 @@ bool Matcher::Track(const Mat& img, Frame* frame, int camera, LocalMap* map, std
 
   FindMatches(d.features, *view, &tracker, &matches);
 
+  int before = matches.size();
   if (0 || matches.size() < 40) {
-    int before = matches.size();
     if (update_frames != nullptr) {
       if (update_frames()) {
         // Inferred position of Frame* has been updated, so try again for matching points.
         FindMatches(d.features, *view, &tracker, &matches);
       }
     }
-    printf("Started with %d, grew to %d after additional matching\n", before, (int) matches.size());
   }
+  printf("Started with %d, grew to %d after additional matching\n", before, (int) matches.size());
 
   //CleanDuplicates(&matches);
 

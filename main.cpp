@@ -444,6 +444,7 @@ int main(int argc, char*argv[]) {
       frame_ptr->rotation().setIdentity();
     } else if (map.frames.size() == 2) {
       frame_ptr->translation() = -Vector3d::UnitX() * kBaseline;
+      frame_ptr->translation()+= Vector3d::UnitZ() * kBaseline;
       frame_ptr->rotation() = map.frames[frame_id - 1]->rotation();
     } else {
       // Initialize pose from the two frames ago. (i.e. the previous frame
@@ -464,9 +465,7 @@ int main(int argc, char*argv[]) {
     // the LocalMap.
     tracking.Track(color, frame_ptr, camera, &map, 
         [&]() -> bool {
-          return slam.SolveFrames(&map,
-              1, 3,  // Present 3 frames, solve 1.
-              20.);
+          return slam.SolveFramePose(frame_ptr->previous(), frame_ptr);
         });
 
     frame_ptr->Commit();

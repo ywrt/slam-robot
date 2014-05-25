@@ -34,6 +34,10 @@ class Slam {
       double range,
       bool solve_cameras);
 
+  bool SolveFramePose(
+      const Frame* f1,
+      Frame* f2);
+
   // TODO: This belong in LocalMap which means the projection
   // should be lifted out.
   double ReprojectMap(LocalMap* map);

@@ -37,7 +37,7 @@ struct Camera {
 
   // Map from [-1,1] x [-1,1] projective plane space 
   // to [0,width]x[0,height] pixel space.
-  Vector2d PlaneToPixel(const Vector2d& p) {
+  Vector2d PlaneToPixel(const Vector2d& p) const {
     double xp = p[0];
     double yp = p[1];
 
@@ -55,7 +55,7 @@ struct Camera {
     return Vector2d(xp, yp);
   }
 
-  Vector2d PixelToPlane(const Vector2d& p) {
+  Vector2d PixelToPlane(const Vector2d& p) const {
     double xp = p[0];
     double yp = p[1];
     

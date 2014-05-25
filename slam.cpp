@@ -12,6 +12,7 @@
 
 #include <map>
 #include <unordered_set>
+#include <unordered_map>
 
 #include "project.h"
 
@@ -57,8 +58,7 @@ public:
 };
 
 struct ReprojectionError {
-  ReprojectionError(double observed_x, double observed_y) :
-      observed_x(observed_x), observed_y(observed_y) { }
+  ReprojectionError(const Eigen::Vector2d& obs) : observation(obs) {}
 
   template <typename T>
   bool operator()(
@@ -74,14 +74,13 @@ struct ReprojectionError {
       return false;  // Point is behind camera.
 
     // The error is the difference between the predicted and observed position.
-    residuals[0] = projected[0] - T(observed_x);
-    residuals[1] = projected[1] - T(observed_y);
+    residuals[0] = projected[0] - T(observation(0));
+    residuals[1] = projected[1] - T(observation(1));
     return true;
   }
 
   ProjectPoint project;
-  double observed_x;
-  double observed_y;
+  Eigen::Vector2d observation;
 };
 
 struct FrameDistance {
@@ -127,6 +126,134 @@ struct CameraStabilization {
   }
 };
 
+// Point observed from two frames. The epipolar constraint
+// is that the obs1 * E * obs2 == 0.
+struct EpipolarConstraint{
+  EpipolarConstraint(const Eigen::Vector2d& pp1, const Eigen::Vector2d& pp2) : h1(pp1), h2(pp2) {}
+
+  template <typename T>
+  bool operator()(
+      const T* const rotation,  // eigen quarternion: [x,y,z,w]
+      const T* const translation,  // [x,y,z]
+      T* residual) const {
+
+    Eigen::Map<const Eigen::Quaternion<T> > r1(rotation);
+    Eigen::Map<const Eigen::Matrix<T, 3, 1> > t1(translation);
+
+    Eigen::Matrix<T, 3, 3> skew;
+    skew << T(0), -t1[2], t1[1],
+            t1[2], T(0), -t1[0],
+            -t1[1], t1[0], T(0);
+
+    Eigen::Matrix<T, 3, 1> th1;
+    Eigen::Matrix<T, 3, 1> th2;
+    th1 << T(h1(0)), T(h1(1)), T(1);
+    th2 << T(h2(0)), T(h2(1)), T(1);
+
+    T result = th2.transpose() * skew * r1.matrix() * th1;
+
+    residual[0] = result;
+    return true;
+  }
+
+  Eigen::Vector2d h1;
+  Eigen::Vector2d h2;
+};
+
+// Hacked up parameterization for the unit vector.
+// takes vector and dx,dy and returns a new vector in r^3
+class UnitVectorParameterization {
+ public:
+  template<typename T>
+  bool operator()(const T* x, const T* delta, T* xplusd) const {
+    Eigen::Map<Eigen::Matrix<T, 3, 1> > r(xplusd);
+
+    r[0] = x[0] + delta[0];
+    r[1] = x[1] + (-delta[0] - delta[1]);
+    r[2] = x[2] + delta[1];
+    r.normalize();
+    return true;
+  }
+};
+
+// Solve for frame position using only the epipolar constraint.
+bool Slam::SolveFramePose(
+    const Frame* f1,
+    Frame* f2) {
+  if (f1 == nullptr)
+    return false;
+
+  // Create residuals for each observation in the bundle adjustment problem. The
+  // parameters for points are added automatically.
+  problem_.reset(new ceres::Problem);
+
+  auto loss = new ceres::CauchyLoss(0.01);
+
+  Eigen::Quaterniond rotation = f2->rotation() * f1->rotation().inverse();
+  Eigen::Vector3d translation = (f1->rotation().inverse() * f1->translation() - f2->rotation().inverse() * f2->translation());
+  double length = translation.norm();
+  translation.normalize();
+
+  // Build a map of point->observation for frame 1.
+  std::unordered_map<TrackedPoint*, Observation*> f1_map(100);
+  for (const auto& o : f1->observations())
+    f1_map.insert(std::make_pair(o->point, o.get()));
+
+  // For each point represented in both frames, add an
+  // epipolar constraint.
+  int count = 0;
+  for (const auto& o : f2->observations()) {
+    if (!f1_map.count(o->point))
+      continue;  // Point isn't in the other frame.
+
+    ceres::CostFunction* cost_function =
+        new ceres::AutoDiffCostFunction<EpipolarConstraint, 1, 4, 3>(
+            new EpipolarConstraint(
+              f1->camera()->PixelToPlane(f1_map[o->point]->pt),
+              f2->camera()->PixelToPlane(o->pt)
+            ));
+
+    problem_->AddResidualBlock(cost_function,
+                              loss /* squared loss */,
+                              rotation.coeffs().data(),
+                              translation.data());
+    ++count;
+  }
+
+
+  if (count < 8) {
+    cout << "Epipolar solve aborted due to count too small. " << count << "\n";
+    return false;
+  }
+
+  // Add parameterization for the quarternion 
+  problem_->SetParameterization(rotation.coeffs().data(),
+      new ceres::QuaternionParameterization);
+
+  // Add parameterization for the translation (which is assumed to be
+  // unitary.
+  problem_->SetParameterization(translation.data(),
+      new ceres::AutoDiffLocalParameterization<UnitVectorParameterization, 3, 2>);
+
+
+  // Run the non-linear solve.
+  if (!Run(false)) {
+    cout << "Epipolar solve failed\n";
+    return false;
+  }
+
+  // We now know something about the relationship between f1 and f2.
+  f2->rotation() = rotation * f1->rotation();
+  f2->translation() = f1->translation() - rotation * translation * length;
+
+  return true;
+}
+
+// Active frame = frame pose is being optimized for.
+// Static frame = frame pose is fixed.
+// Points with more than one optimization are always optimized for.
+// Points observed from a set of frames where the maximum frame distance is less than X are singular
+// and should be skipped.
 
 // Solve some set of frame poses and point locations.
 bool Slam::SetupProblem(
@@ -159,7 +286,7 @@ bool Slam::SetupProblem(
 
       ceres::CostFunction* cost_function =
           new ceres::AutoDiffCostFunction<ReprojectionError, 2, 4, 3, 7, 4>(
-              new ReprojectionError(o->pt(0), o->pt(1)));
+              new ReprojectionError(o->pt));
 
       problem_->AddResidualBlock(cost_function,
                                 loss /* squared loss */,
@@ -217,7 +344,6 @@ bool Slam::SetupProblem(
   id_set.clear();
 
   // Mark points that are not referenced by a frame being solved for as const.
-  // Mark points that reference unpresented frames as const.
   for (const auto& point : point_set) {
     id_set.insert(point->id());
     if (point->uncertainty() > 100)
@@ -228,7 +354,8 @@ bool Slam::SetupProblem(
       const_set.insert(point->id());
       continue;
     }
-
+#if 0
+    // Mark points that reference unpresented frames as const.
     for (const auto& o : point->observations()) {
       if (o->disabled())
         continue;
@@ -241,6 +368,7 @@ bool Slam::SetupProblem(
       //const_set.insert(point->id());
       break;
     }
+#endif
   }
 
   printf("Points: ");
@@ -403,7 +531,7 @@ double Slam::ReprojectMap(LocalMap* map) {
     for (auto& o : frame->observations()) {
       o->error = o->pt;
 
-      ReprojectionError project(o->pt(0), o->pt(1));
+      ReprojectionError project(o->pt);
 
       bool result = project(
               frame->rotation().coeffs().data(),
