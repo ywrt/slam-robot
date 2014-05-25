@@ -31,7 +31,7 @@ Vector4d Frame::Unproject(const Vector2d& point, double distance) const {
   result(2) = distance;
   result(3) = 1;
 
-  result.head<3>() = (rotation().inverse() * (result.head<3>() - translation())).eval();
+  result.head<3>() = (rotation().inverse() * result.head<3>() + translation()).eval();
   result.normalize();
   return result;
 }
@@ -120,38 +120,36 @@ void LocalMap::Normalize() {
   auto& pose2 = frames[1];
 #if 1
   // Re-orient the map back to baseline, and base scale.
-  auto xlate = (pose1->rotation() * -pose1->translation()).eval();
+  auto xlate = ( -pose1->translation()).eval();
   // The distance between the first two frames should be 150mm.
-  double scale = 150. / (pose1->rotation().inverse() * pose1->translation() - pose2->rotation().inverse() * pose2->translation()).norm();
+  double scale = 150. / (pose1->translation() - pose2->translation()).norm();
   scale = 1.;
   // First translate back to origin.
   for (auto& f : frames) {
-    f->translation() += f->rotation() * xlate;
+    f->translation() += xlate;
     f->translation() *= scale;
   }
 
   for (auto& p : points) {
     // normalize to world co-ordinates.
-    p->move(-xlate);
+    p->move(xlate);
     p->rescale(1./scale);
   }
 #endif
-#if 0
+#if 1
   // Then rotate, first bring frame 0 to the identity rotation, and then
   // rotating to bring the second frame to [0,150,0]
-  auto rotate = pose1.rotation_.inverse().matrix().eval();
-  rotate = (Quaterniond().setFromTwoVectors(rotate * pose2.rotation_.inverse() * pose2.translation_, -Vector3d::UnitX()));
-
+  auto rotate = pose1->rotation().matrix().eval();
   auto inverse = rotate.inverse().eval();
+  //rotate = (Quaterniond().setFromTwoVectors(rotate * pose2.rotation_.inverse() * pose2.translation_, Vector3d::UnitX()));
+
   for (auto& f : frames) {
-    auto& r = f->pose.rotation_;
-    //f->pose.translation_ = (r.inverse() * rotate * r * f->pose.translation_).eval();
-    r = (r * rotate).eval();
+    f->rotation() = (f->rotation() * inverse).eval();
+    f->translation() = (rotate * f->translation()).eval();
   }
   for (auto& p : points) {
     // Don't need to norm as we're only rotating.
-    auto& loc = p->location_;
-    loc.head<3>() = (inverse * loc.head<3>()).eval();
+    p->location().head<3>() = (rotate * p->location().head<3>()).eval(); 
   }
 #endif
 }
@@ -188,7 +186,7 @@ Matrix3d EssentialMatrix(Frame* from, Frame* to) {
   //Matrix3d rotation = to->rotation().matrix() * from->rotation().inverse().matrix();
   //Matrix3d rotation = from->rotation().inverse().matrix() * to->rotation().matrix();
   Matrix3d rotation = to->rotation().matrix() * from->rotation().inverse().matrix();
-  Vector3d translation = from->translation() - rotation.inverse() * to->translation();
+  Vector3d translation = to->translation() - from->translation();
   translation.normalize();
 
   Matrix3d skew;
@@ -269,9 +267,11 @@ bool LocalMap::Clean(double error_threshold) {
     // Force point scale factor to be strictly positive.
     if (point->location()[3] < 0) {
       point->location()[3] = -point->location()[3];
+      printf(" loc was -ve\n");
     }
-    if (point->location()[3] < 1e-6) {
+    if (fabs(point->location()[3]) < 1e-6) {
       point->location()[3] = 1e-6;
+      printf(" loc was small\n");
     }
 
     double sum_err = 0;
@@ -294,7 +294,7 @@ bool LocalMap::Clean(double error_threshold) {
       // tracked point (bundle adjustment is bringing it singular).
       // First, move the point into frame space.
       // if (o->frame->position() - point->position()).norm() < 1) {
-      Vector3d pos = o->frame->rotation() * point->position() + o->frame->translation();
+      Vector3d pos = o->frame->rotation() * (point->position() - o->frame->translation());
       if (pos[2] < 1) {
         printf("p %3d, f %3d: Point is too close to camera. %f\n", point->id(), o->frame->id(), pos[2]);
         point->set_flag(TrackedPoint::Flags::BAD_LOCATION);

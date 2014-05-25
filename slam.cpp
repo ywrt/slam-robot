@@ -88,18 +88,14 @@ struct FrameDistance {
 
   template <typename T>
   bool operator()(
-      const T* const f1_rotation,  // eigen quarternion: [x,y,z,w]
       const T* const f1_translation,  // [x,y,z]
-      const T* const f2_rotation,  // eigen quarternion: [x,y,z,w]
       const T* const f2_translation,  // [x,y,z]
       T* residual) const {
 
-    Eigen::Map<const Eigen::Quaternion<T> > r1(f1_rotation);
-    Eigen::Map<const Eigen::Quaternion<T> > r2(f2_rotation);
     Eigen::Map<const Eigen::Matrix<T, 3, 1> > t1(f1_translation);
     Eigen::Map<const Eigen::Matrix<T, 3, 1> > t2(f2_translation);
 
-    T dist = (r1.matrix().inverse() * t1 - r2.matrix().inverse() * t2).norm();
+    T dist = (t1 - t2).norm();
     // The error is the difference between the predicted and observed position.
     residual[0] = T(0.1) * (dist - T(distance));
     return true;
@@ -182,6 +178,7 @@ bool Slam::SolveFramePose(
     Frame* f2) {
   if (f1 == nullptr)
     return false;
+  return false;
 
   // Create residuals for each observation in the bundle adjustment problem. The
   // parameters for points are added automatically.
@@ -190,7 +187,7 @@ bool Slam::SolveFramePose(
   auto loss = new ceres::CauchyLoss(0.01);
 
   Eigen::Quaterniond rotation = f2->rotation() * f1->rotation().inverse();
-  Eigen::Vector3d translation = (f1->rotation().inverse() * f1->translation() - f2->rotation().inverse() * f2->translation());
+  Eigen::Vector3d translation = (f1->translation() - f2->translation());
   double length = translation.norm();
   translation.normalize();
 
@@ -244,7 +241,7 @@ bool Slam::SolveFramePose(
 
   // We now know something about the relationship between f1 and f2.
   f2->rotation() = rotation * f1->rotation();
-  f2->translation() = f1->translation() - rotation * translation * length;
+  f2->translation() = f1->translation() - translation * length;
 
   return true;
 }
@@ -401,16 +398,14 @@ bool Slam::SetupProblem(
     // previous frame. This is assuming a stero camera setup
     // with a 150mm baseline.
     ceres::CostFunction* cost_function =
-        new ceres::AutoDiffCostFunction<FrameDistance, 1, 4, 3, 4, 3>(
+        new ceres::AutoDiffCostFunction<FrameDistance, 1, 3, 3>(
             new FrameDistance(150.));
     auto frame_loss = new ceres::CauchyLoss(15);
 
     problem_->AddResidualBlock(
         cost_function,
         frame_loss /* squared loss */,
-        frame->rotation().coeffs().data(),
         frame->translation().data(),
-        prev->rotation().coeffs().data(),
         prev->translation().data());
   }
 
@@ -540,6 +535,7 @@ double Slam::ReprojectMap(LocalMap* map) {
               o->point->location().data(),
               o->error.data());
       if (!result) {
+        printf("Point reporjection failed\n");
         continue;  // Point can't be projected?
       }
       mean = mean + (o->error.norm() - mean) / (count + 1);

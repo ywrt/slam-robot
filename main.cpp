@@ -387,7 +387,7 @@ int main(int argc, char*argv[]) {
       //-0.11063,  0.23578, -0.04918, 525.93916, 527.72444, 313.81586, 238.12937
       //-0.11478,  0.20802, -0.01298, 518.86230, 520.01454, 316.46663, 241.49498
       //-0.11935,  0.23594, -0.04147, 522.07793, 523.27863, 316.35035, 242.73732
-      -0.11148,  0.18131, -0.00085, 512.96132, 515.11507, 314.17485, 241.31441
+      -0.11148,  0.18131, -0.00085, 512.96132, -515.11507, 314.17485, 241.31441
       });
   map.AddCamera(new Camera{
       //-0.12031,  0.20155,  0.06873, 531.77238, 530.43886, 299.85292, 237.38257
@@ -395,7 +395,7 @@ int main(int argc, char*argv[]) {
       //-0.11233,  0.20996, -0.00277, 528.15652, 530.17048, 289.13812, 226.88791
       //-0.11800,  0.22267, -0.03727, 519.90177, 521.53671, 295.78675, 227.31407
       //-0.12454,  0.24446, -0.05460, 523.47602, 524.93736, 295.69405, 228.84880
-      -0.12310,  0.18615,  0.01386, 513.92203, 516.38275, 293.13978, 230.27529
+      -0.12310,  0.18615,  0.01386, 513.92203, -516.38275, 293.13978, 230.27529
       });
 
   // Initialize the cameras.
@@ -443,8 +443,8 @@ int main(int argc, char*argv[]) {
       frame_ptr->translation() = Vector3d::Zero();
       frame_ptr->rotation().setIdentity();
     } else if (map.frames.size() == 2) {
-      frame_ptr->translation() = -Vector3d::UnitX() * kBaseline;
-      frame_ptr->translation()+= Vector3d::UnitZ() * kBaseline;
+      frame_ptr->translation() = Vector3d::UnitX() * kBaseline;
+      frame_ptr->translation()+= -Vector3d::UnitZ() * kBaseline;
       frame_ptr->rotation() = map.frames[frame_id - 1]->rotation();
     } else {
       // Initialize pose from the two frames ago. (i.e. the previous frame
@@ -487,7 +487,6 @@ int main(int argc, char*argv[]) {
       slam.ReprojectMap(&map);
       map.Clean(kErrorThreshold);
     }
-
     // Occasionally run bundle adjustment over the previous 10 frames.
     if (frame_id < 10 || (frame_id % 5) == 0) {
       // Then solve all frame poses.
@@ -500,6 +499,7 @@ int main(int argc, char*argv[]) {
       slam.ReprojectMap(&map);
       map.Clean(kErrorThreshold);
     }
+
 
     map.ApplyEpipolarConstraint();
 
@@ -532,8 +532,8 @@ int main(int argc, char*argv[]) {
     prev = color;
     have_image = true;
 
-    //slam.ReprojectMap(&map);
-    //map.Stats();
+    slam.ReprojectMap(&map);
+    map.Stats();
 
     //if (!(frame_id% 20))
     if (FLAGS_drawdebug)

@@ -119,7 +119,7 @@ class Frame {
 
   // Frame origin in world space.
   Vector3d position() const {
-    return rotation_.inverse() * -translation_;
+    return translation_;
   }
 
   // A unique id for this frame.

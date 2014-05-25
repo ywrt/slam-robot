@@ -21,7 +21,7 @@ struct ProjectPoint {
     Eigen::Map<const Eigen::Matrix<T, 3, 1> > mpoint(point);
 
     // Compute rotated translated point in [x*w, y*w, z*w] space.
-    Eigen::Matrix<T, 3, 1> p = q * mpoint + translate * point[3];
+    Eigen::Matrix<T, 3, 1> p = q * (mpoint - translate * point[3]);
 
     // Don't project points that are effectively behind the intrinsics lens.
     if (p[2] < 0.001 * point[3]) {
