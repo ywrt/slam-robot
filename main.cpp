@@ -566,36 +566,38 @@ int main(int argc, char*argv[]) {
       continue;
     }
 
-    // Run bundle adjustment, first against all the new frame pose
-    // (and all world points) while holding all other frame poses
-    // constant.
-   
-    if (slam.SolveFrames(&map,
-            2, 5,  // Present 5 frames, solve 2.
-            2.)) {
-      slam.ReprojectMap(&map);
-      map.Clean(kErrorThreshold);
-    }
-    // Occasionally run bundle adjustment over the previous 10 frames.
-    if (frame_id < 10 || (frame_id % 5) == 0) {
-      // Then solve all frame poses.
-      //slam.Run(&map, nullptr);
-      // Solve the last 10 frame poses.
-      if (!slam.SolveFrames(&map,
-            10, 20,  // Solve 10 frames out of 20 presented.
-            2.))
-        break;
-      slam.ReprojectMap(&map);
-      map.Clean(kErrorThreshold);
-    }
+    if (FLAGS_slam) {
+      // Run bundle adjustment, first against all the new frame pose
+      // (and all world points) while holding all other frame poses
+      // constant.
+     
+      if (slam.SolveFrames(&map,
+              2, 5,  // Present 5 frames, solve 2.
+              2.)) {
+        slam.ReprojectMap(&map);
+        map.Clean(kErrorThreshold);
+      }
+      // Occasionally run bundle adjustment over the previous 10 frames.
+      if (frame_id < 10 || (frame_id % 5) == 0) {
+        // Then solve all frame poses.
+        //slam.Run(&map, nullptr);
+        // Solve the last 10 frame poses.
+        if (!slam.SolveFrames(&map,
+              10, 20,  // Solve 10 frames out of 20 presented.
+              2.))
+          break;
+        slam.ReprojectMap(&map);
+        map.Clean(kErrorThreshold);
+      }
 
-    //map.ApplyEpipolarConstraint();
+      //map.ApplyEpipolarConstraint();
 
-    // Rotate and scale the map back to a standard baseline.
-    double err1 = slam.ReprojectMap(&map);
-    map.Normalize();
-    double err2 = slam.ReprojectMap(&map);
-    CHECK_NEAR(err1, err2, 1e-1);
+      // Rotate and scale the map back to a standard baseline.
+      double err1 = slam.ReprojectMap(&map);
+      map.Normalize();
+      double err2 = slam.ReprojectMap(&map);
+      CHECK_NEAR(err1, err2, 1e-1);
+    }
 
     // Draw observation history onto the left frame.
     if (FLAGS_drawdebug) {
