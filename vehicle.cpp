@@ -4,6 +4,7 @@
 #include <unistd.h>
 
 #include "usb.h"
+#include "vehicle.h"
 
 typedef uint8_t u8;
 typedef uint16_t u16;
@@ -13,7 +14,6 @@ typedef int32_t s32;
 #include "maestro-protocol.h"
 #include "smc-protocol.h"
 
-#include "vehicle.h"
 
 using namespace std;
 
@@ -83,55 +83,32 @@ class PololuSMC : public UsbDevice {
     libusb_control_transfer(device_handle_, 0x40,
         REQUEST_SET_USB_KILL, 1, 0, 0, 0, (ushort)5000);
   }
-
 };
 
-int move_vehicle() {
-    Usb usb;
-
-    cout << "Starting servos\n";
-    PololuMaestro servos(&usb);
-    servos.Init();
-
-    cout << "Starting motor\n";
-    PololuSMC motor(&usb);
-    motor.Init();
-    motor.resume();
-    
-    for (int i = 0; i < 1; ++i) {
-      // right
-      servos.SetTarget(0, 0.5);
-      servos.SetTarget(1, -0.5);
-      motor.SetSpeed(0.18);
-      sleep(3);
-      motor.SetSpeed(0);
-
-      // left
-      servos.SetTarget(0, -0.5);
-      servos.SetTarget(1, 0.5);
-      motor.SetSpeed(-0.18);
-      sleep(3);
-      motor.SetSpeed(0);
-    }
-    motor.stop();
-    return 0;
+Vehicle::Vehicle() : motor_(new PololuSMC(&usb_)), servos_(new PololuMaestro(&usb_)) {
+  motor_->Init();
+  motor_->resume();
 }
 
+Vehicle::~Vehicle() {
+  Stop();
+}
 
-void vehicle_stop() {
-    Usb usb;
+void Vehicle::Stop() {
+    servos_->SetTarget(0, 0);
+    servos_->SetTarget(1, 0);
 
-    cout << "Starting servos\n";
-    PololuMaestro servos(&usb);
-    servos.Init();
+    motor_->SetSpeed(0);
+    motor_->stop();
+}
 
-    cout << "Starting motor\n";
-    PololuSMC motor(&usb);
-    motor.Init();
-    motor.resume();
+// Set speed. 0.18 seems good.
+void Vehicle::Speed(double d) {
+    motor_->SetSpeed(d);
+}
 
-    servos.SetTarget(0, 0);
-    servos.SetTarget(1, 0);
-
-    motor.stop();
+// Set turn amount. 0.5 seems good too.
+void Vehicle::Turn(double d) {
+  servos_->SetTarget(0, d);
+  servos_->SetTarget(1, -d);
 }

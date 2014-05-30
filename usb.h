@@ -1,3 +1,5 @@
+#ifndef USB_H_
+#define USB_H_
 #include <cstdint>
 #include <iostream>
 #include <libusb.h>
@@ -65,3 +67,5 @@ class UsbDevice {
   Usb* usb_;
   libusb_device_handle *device_handle_;
 };
+
+#endif  // USB_H_

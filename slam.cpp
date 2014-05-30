@@ -473,7 +473,13 @@ bool Slam::SolveAllFrames(
     problem_->SetParameterBlockConstant(map->cameras[0]->k);
     problem_->SetParameterBlockConstant(map->cameras[1]->k);
   }
-
+#if 0
+  else {
+    problem_->SetParameterBlockConstant(map->frames[0]->rotation().coeffs().data());
+    problem_->SetParameterBlockConstant(map->frames[0]->translation().data());
+    problem_->SetParameterBlockConstant(map->frames[1]->translation().data());
+  }
+#endif
   return Run(solve_cameras);
 }
 

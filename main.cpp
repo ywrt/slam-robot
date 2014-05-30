@@ -27,6 +27,7 @@
 
 
 DEFINE_bool(drawdebug, true, "Show debugging display");
+DEFINE_string(save, "", "Save images to specified directory");
 
 using namespace std;
 using namespace cv;
@@ -331,6 +332,71 @@ void CallBackFunc(int event, int x, int y, int flags, void* userdata) {
   cv::imshow("Right", rout);
 }
 
+void SolveCameras(LocalMap* map, Slam* slam) {
+  // Print some debugging stats to STDOUT.
+  // Re-run slam with increasingly tight rejection of outliers.
+  slam->SolveAllFrames(map, 10, false);
+  slam->SolveAllFrames(map, 5, false);
+  slam->SolveAllFrames(map, 2, false);
+
+  map->cameras[0]->Reset();
+  map->cameras[1]->Reset();
+
+  map->frames[0]->translation() << 0,0,0;
+  map->frames[1]->translation() << 150,0,0;
+  // Run total bundle adjustment including camera instrinsics.
+  slam->SolveAllFrames(map, 100, true);
+  slam->SolveAllFrames(map, 20, true);
+  slam->SolveAllFrames(map, 5, true);
+  slam->SolveAllFrames(map, 2, true);
+  slam->SolveAllFrames(map, 0.5, true);
+  map->Stats();
+  printf("k1 k2 k3 fx fy cx cy\n");
+  printf(" %8.5f, %8.5f, %8.5f, %8.5f, %8.5f, %8.5f, %8.5f\n",
+      map->cameras[0]->k[0],
+      map->cameras[0]->k[1],
+      map->cameras[0]->k[2],
+      map->cameras[0]->k[3],
+      map->cameras[0]->k[4],
+      map->cameras[0]->k[5],
+      map->cameras[0]->k[6]
+      );
+  printf(" %8.5f, %8.5f, %8.5f, %8.5f, %8.5f, %8.5f, %8.5f\n",
+      map->cameras[1]->k[0],
+      map->cameras[1]->k[1],
+      map->cameras[1]->k[2],
+      map->cameras[1]->k[3],
+      map->cameras[1]->k[4],
+      map->cameras[1]->k[5],
+      map->cameras[1]->k[6]
+      );
+  slam->ReprojectMap(map);
+
+  map->cameras[0]->Reset();
+  map->cameras[1]->Reset();
+  printf("k1 k2 k3 fx fy cx cy\n");
+  printf(" %8.5f, %8.5f, %8.5f, %8.5f, %8.5f, %8.5f, %8.5f\n",
+      map->cameras[0]->k[0],
+      map->cameras[0]->k[1],
+      map->cameras[0]->k[2],
+      map->cameras[0]->k[3],
+      map->cameras[0]->k[4],
+      map->cameras[0]->k[5],
+      map->cameras[0]->k[6]
+      );
+  printf(" %8.5f, %8.5f, %8.5f, %8.5f, %8.5f, %8.5f, %8.5f\n",
+      map->cameras[1]->k[0],
+      map->cameras[1]->k[1],
+      map->cameras[1]->k[2],
+      map->cameras[1]->k[3],
+      map->cameras[1]->k[4],
+      map->cameras[1]->k[5],
+      map->cameras[1]->k[6]
+      );
+  cv::waitKey(0);
+  slam->SolveAllFrames(map, 2, false);
+}
+
 // [CAMERA_PARAMS] Left
 // resolution=[640 480]
 // cx=287.03691
@@ -347,6 +413,25 @@ void CallBackFunc(int event, int x, int y, int flags, void* userdata) {
 // fy=526.16432
 // dist=[-1.091669e-01 2.201787e-01 -1.866669e-03 1.632135e-04 0.000000e+00]
 
+void TestMove() {
+  Vehicle v;
+
+  sleep(1);
+
+  for (int i = 0; i < 8; ++i) {
+    v.Turn(0.5);
+    v.Speed(-0.18);
+    sleep(2);
+    v.Speed(0);
+
+    v.Speed(0.18);
+    v.Turn(-0.5);
+    sleep(2);
+    v.Speed(0);
+  }
+  v.Turn(0);
+  v.Speed(0);
+}
 
 int main(int argc, char*argv[]) {
   // gl_init(argc, argv);
@@ -433,6 +518,12 @@ int main(int argc, char*argv[]) {
     if (!cam->GetObservation(camera, &color))
       break;
 
+    if (!FLAGS_save.empty()) {
+      char b[100];
+      sprintf(b, "%08d.png", frame_ptr->id());
+      cv::imwrite(FLAGS_save + "/" + b, color);
+    }
+
     // Blur it slightly: stddev=1
     //GaussianBlur(color, color, Size(5, 5), 1, 1);
 
@@ -444,7 +535,7 @@ int main(int argc, char*argv[]) {
       frame_ptr->rotation().setIdentity();
     } else if (map.frames.size() == 2) {
       frame_ptr->translation() = Vector3d::UnitX() * kBaseline;
-      frame_ptr->translation()+= -Vector3d::UnitZ() * kBaseline;
+ //     frame_ptr->translation()+= -Vector3d::UnitZ() * kBaseline;
       frame_ptr->rotation() = map.frames[frame_id - 1]->rotation();
     } else {
       // Initialize pose from the two frames ago. (i.e. the previous frame
@@ -500,14 +591,12 @@ int main(int argc, char*argv[]) {
       map.Clean(kErrorThreshold);
     }
 
-
-    map.ApplyEpipolarConstraint();
+    //map.ApplyEpipolarConstraint();
 
     // Rotate and scale the map back to a standard baseline.
     double err1 = slam.ReprojectMap(&map);
     map.Normalize();
     double err2 = slam.ReprojectMap(&map);
-
     CHECK_NEAR(err1, err2, 1e-1);
 
     // Draw observation history onto the left frame.
@@ -532,51 +621,12 @@ int main(int argc, char*argv[]) {
     prev = color;
     have_image = true;
 
-    slam.ReprojectMap(&map);
-    map.Stats();
-
     //if (!(frame_id% 20))
     if (FLAGS_drawdebug)
       cv::waitKey(0);
 
     if (0 && (frame_id % 20) == 0) {
-      // Print some debugging stats to STDOUT.
-      // Re-run slam with increasingly tight rejection of outliers.
-      slam.SolveAllFrames(&map, 10, false);
-      slam.SolveAllFrames(&map, 5, false);
-      slam.SolveAllFrames(&map, 2, false);
-      map.Stats();
-
-      map.cameras[0]->Reset();
-      map.cameras[1]->Reset();
-
-      // Run total bundle adjustment including camera instrinsics.
-      slam.SolveAllFrames(&map, 2, true);
-      printf("k1 k2 k3 fx fy cx cy\n");
-      printf(" %8.5f, %8.5f, %8.5f, %8.5f, %8.5f, %8.5f, %8.5f\n",
-          map.cameras[0]->k[0],
-          map.cameras[0]->k[1],
-          map.cameras[0]->k[2],
-          map.cameras[0]->k[3],
-          map.cameras[0]->k[4],
-          map.cameras[0]->k[5],
-          map.cameras[0]->k[6]
-          );
-      printf(" %8.5f, %8.5f, %8.5f, %8.5f, %8.5f, %8.5f, %8.5f\n",
-          map.cameras[1]->k[0],
-          map.cameras[1]->k[1],
-          map.cameras[1]->k[2],
-          map.cameras[1]->k[3],
-          map.cameras[1]->k[4],
-          map.cameras[1]->k[5],
-          map.cameras[1]->k[6]
-          );
-      slam.ReprojectMap(&map);
-
-      cv::waitKey(0);
-      map.cameras[0]->Reset();
-      map.cameras[1]->Reset();
-      slam.SolveAllFrames(&map, 2, false);
+      SolveCameras(&map, &slam);
     }
 
     if (frame_id == 400 && FLAGS_drawdebug) break;
