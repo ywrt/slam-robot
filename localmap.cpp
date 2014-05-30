@@ -154,6 +154,37 @@ void LocalMap::Normalize() {
 #endif
 }
 
+// Remove and destroy the most recent keyframe.
+void LocalMap::PopFrame() {
+  if (!frames.size()) return;
+  Frame* f = frames.back().get();
+
+  CHECK(!f->is_keyframe_);
+
+  // Should be the most recent observation for these points.
+  for (const auto& obs : f->observations()) {
+    CHECK(obs->point->RemoveObservation(f));
+  }
+
+  // Destructors will take care of everything else.
+  frames.pop_back();
+}
+
+void LocalMap::CheckNotMoving() {
+  if (frames.size() < 4) return;
+  int n = frames.size();
+  double d1 = (frames[n-1]->position() - frames[n-3]->position()).norm();
+  double d2 = (frames[n-2]->position() - frames[n-4]->position()).norm();
+  if ((d1*d1 + d2*d2) > 5) return;  // Still moving.
+
+  if (frames[n-1]->is_keyframe_) return;
+  if (frames[n-2]->is_keyframe_) return;
+
+  printf("Removing idle frames.\n");
+
+  PopFrame();
+  PopFrame();
+}
 
 void PrintObs(const Observation& o, const TrackedPoint& point) {
   // Debug dump.
@@ -441,12 +472,11 @@ void LocalMap::Stats() const {
     }
 
     auto rot = f->rotation();
-    printf("Frame %3d : [ % 9.4f, % 9.4f, % 9.4f ] distance %8.1f ddist %8.1f fdist %8.1f [%f,%f,%f,%f]\n",
+    printf("Frame %3d : [ % 9.4f, % 9.4f, % 9.4f ] distance %8.1f ddist %8.1f [%f,%f,%f,%f]\n",
         f->id(),
         pos(0), pos(1), pos(2),
         distance,
         ddist,
-        f->dist,
         rot.w(), rot.x(), rot.y(), rot.z()
         );
   }

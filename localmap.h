@@ -152,8 +152,7 @@ class Frame {
   void set_previous(Frame* f) { previous_ = f; }
   Frame* previous() const { return previous_; }
 
-  // Debugging, use for frame-to-frame distances.
-  double dist;
+  bool is_keyframe_;
  private:
   int frame_id_;
   Camera* camera_;
@@ -255,6 +254,16 @@ class TrackedPoint {
   // Add a new observation of this point.
   void AddObservation(Observation* obs);
 
+  // Remove the last observation, checking that it's
+  // from frame 'f'.
+  bool RemoveObservation(Frame* f) {
+    if (!observations_.size()) return false;
+    if (observations_.back()->frame != f) return false;
+    observations_.pop_back();
+    CheckFlags();
+    return true;
+  }
+
   // Clear incorrectly set flags.
   void CheckFlags();
 
@@ -276,6 +285,10 @@ struct LocalMap {
   // Add a new (empty) frame to the map.
   // Returns the frame number.
   Frame* AddFrame(Camera* cam);
+
+  // Remove and destroy the most recently added frame.
+  void PopFrame();
+  void CheckNotMoving();
 
   // Add a new camera to the map
   void AddCamera(Camera* cam);

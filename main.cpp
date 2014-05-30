@@ -12,14 +12,17 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
-
-#include "opencv2/opencv.hpp"
-
-#include <eigen3/Eigen/Eigen>
-
 #include <glog/logging.h>
 #include <gflags/gflags.h>
 
+
+#include <eigen3/Eigen/Eigen>
+#include <thread>
+#include <atomic>
+#include <iostream>
+#include <fstream>
+
+#include "opencv2/opencv.hpp"
 #include "localmap.h"
 #include "slam.h"
 #include "matcher.h"
@@ -27,6 +30,8 @@
 
 
 DEFINE_bool(drawdebug, true, "Show debugging display");
+DEFINE_bool(move, false, "Run test move sequence");
+DEFINE_bool(slam, true, "Run slam solver");
 DEFINE_string(save, "", "Save images to specified directory");
 
 using namespace std;
@@ -413,6 +418,8 @@ void SolveCameras(LocalMap* map, Slam* slam) {
 // fy=526.16432
 // dist=[-1.091669e-01 2.201787e-01 -1.866669e-03 1.632135e-04 0.000000e+00]
 
+std::atomic<bool> is_moving(false);
+
 void TestMove() {
   Vehicle v;
 
@@ -431,6 +438,7 @@ void TestMove() {
   }
   v.Turn(0);
   v.Speed(0);
+  is_moving.store(false);
 }
 
 int main(int argc, char*argv[]) {
@@ -445,6 +453,12 @@ int main(int argc, char*argv[]) {
     cv::moveWindow("Right", 1440, 780);
 
     setMouseCallback("Left", CallBackFunc, NULL);
+  }
+
+  unique_ptr<std::thread> move;
+  is_moving.store(true);
+  if (FLAGS_move) {
+    move.reset(new std::thread(TestMove));
   }
 
   std::unique_ptr<ImageSource> cam;
@@ -467,19 +481,9 @@ int main(int argc, char*argv[]) {
   // alternating between them. Initialize with the
   // distortion parameters. k1, k2, k3, fx, fy, cx, cy.
   map.AddCamera(new Camera{
-      //-0.10665,  0.20000,  0.07195, 529.35050, 529.70380, 322.07373, 240.90333
-      //-0.10997,  0.22927, -0.03465, 525.83877, 527.89065, 314.11277, 237.66428
-      //-0.11063,  0.23578, -0.04918, 525.93916, 527.72444, 313.81586, 238.12937
-      //-0.11478,  0.20802, -0.01298, 518.86230, 520.01454, 316.46663, 241.49498
-      //-0.11935,  0.23594, -0.04147, 522.07793, 523.27863, 316.35035, 242.73732
       -0.11148,  0.18131, -0.00085, 512.96132, -515.11507, 314.17485, 241.31441
       });
   map.AddCamera(new Camera{
-      //-0.12031,  0.20155,  0.06873, 531.77238, 530.43886, 299.85292, 237.38257
-      //-0.11049,  0.20269,  0.00757, 527.86300, 529.93065, 289.55683, 226.53018
-      //-0.11233,  0.20996, -0.00277, 528.15652, 530.17048, 289.13812, 226.88791
-      //-0.11800,  0.22267, -0.03727, 519.90177, 521.53671, 295.78675, 227.31407
-      //-0.12454,  0.24446, -0.05460, 523.47602, 524.93736, 295.69405, 228.84880
       -0.12310,  0.18615,  0.01386, 513.92203, -516.38275, 293.13978, 230.27529
       });
 
@@ -502,12 +506,11 @@ int main(int argc, char*argv[]) {
 
   // Which camera the previous frame came from.
   int camera = 1;
-  while (1) {
+  while (is_moving.load()) {
     have_image = false;
     camera ^= 1;
 
     Frame* frame_ptr = map.AddFrame(map.cameras[camera].get());
-    frame_ptr->dist = kBaseline;
     int frame_id = frame_ptr->id();
     printf("\n============== Frame %d\n", frame_id);
 
@@ -544,11 +547,6 @@ int main(int argc, char*argv[]) {
       frame_ptr->rotation() = map.frames[frame_id - 2]->rotation();
     }
 
-    for (unsigned int i = 2 ; i < map.frames.size() - 1; ++i) {
-      double d = (map.frames[i-2]->position() - map.frames[i]->position()).norm();
-      map.frames[i]->dist = sqrt(d*d/4 + kBaseline * kBaseline);
-    }
-
     // Slam error threshold.
     const double kErrorThreshold = 5.;
 
@@ -573,7 +571,7 @@ int main(int argc, char*argv[]) {
     // constant.
    
     if (slam.SolveFrames(&map,
-            2, 5,  // Present 5 solves, solve 2.
+            2, 5,  // Present 5 frames, solve 2.
             2.)) {
       slam.ReprojectMap(&map);
       map.Clean(kErrorThreshold);
