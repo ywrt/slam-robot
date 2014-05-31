@@ -22,6 +22,8 @@
 #include <iostream>
 #include <fstream>
 #include <mutex>
+#include <chrono>
+#include <ctime>
 
 #include "opencv2/opencv.hpp"
 #include "localmap.h"
@@ -486,6 +488,27 @@ void WriteImages() {
   }
 }
 
+class ScopedTimer {
+ public:
+  ScopedTimer(const string& name) : name_(name) {
+    start_ = std::chrono::system_clock::now();
+  }
+  ~ScopedTimer() {
+    end_ = std::chrono::system_clock::now();
+    std::chrono::duration<double> elapsed_seconds = end_ - start_;
+
+    std::cout << "TIMER: ";
+    std::cout << name_;
+    std::cout << ": ";
+    std::cout << elapsed_seconds.count() << "\n";
+  }
+
+ private:
+  string name_;
+  std::chrono::time_point<std::chrono::system_clock> start_;
+  std::chrono::time_point<std::chrono::system_clock> end_;
+};
+
 int main(int argc, char*argv[]) {
   // gl_init(argc, argv);
   google::ParseCommandLineFlags(&argc, &argv, true);
@@ -562,6 +585,7 @@ int main(int argc, char*argv[]) {
   // Which camera the previous frame came from.
   int camera = 0;
   while (is_moving.load()) {
+    ScopedTimer timer_main("Main loop");
     have_image = false;
     camera ^= 1;
 
@@ -573,8 +597,11 @@ int main(int argc, char*argv[]) {
     //debug = true;
     // Fetch the next image.
     Mat color;
-    if (!cam->GetObservation(camera, frame_id, &color))
-      break;
+    {
+      ScopedTimer timer_main("camera");
+      if (!cam->GetObservation(camera, frame_id, &color))
+        break;
+    }
 
     if (!FLAGS_save.empty()) {
       Mat* m = new Mat;
