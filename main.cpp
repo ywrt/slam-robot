@@ -175,10 +175,8 @@ class ImageSourceDuo : public ImageSource {
 
   virtual bool GetObservation(int camera, int, Mat* img) {
     if (camera == 0) {
-      cam1_.read(*img);
       return cam1_.read(*img);
     } else {
-      cam2_.read(*img);
       return cam2_.read(*img);
     }
   }
@@ -615,12 +613,14 @@ int main(int argc, char*argv[]) {
 
     // Track features against the new image, and fill them into
     // the LocalMap.
-    tracking.Track(color, frame_ptr, camera, &map, 
-        [&]() -> bool {
-          return slam.SolveFramePose(frame_ptr->previous(), frame_ptr);
-        });
+    if (FLAGS_slam) {
+      tracking.Track(color, frame_ptr, camera, &map, 
+          [&]() -> bool {
+            return slam.SolveFramePose(frame_ptr->previous(), frame_ptr);
+          });
+      frame_ptr->Commit();
+    }
 
-    frame_ptr->Commit();
 
     // If there's not a previous image, then we can't run comparisons
     // against it: Just skip to getting another image.
@@ -661,8 +661,6 @@ int main(int argc, char*argv[]) {
       double err2 = slam.ReprojectMap(&map);
       CHECK_NEAR(err1, err2, 1e-1);
     }
-
-    if (frame_id > 50) SolveCameras(&map, &slam);
 
     // Draw observation history onto the left frame.
     if (FLAGS_drawdebug) {
