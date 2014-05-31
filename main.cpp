@@ -447,14 +447,10 @@ int main(int argc, char*argv[]) {
   if (!FLAGS_load.empty()) {
     cam.reset(new ImageSourceFiles(FLAGS_load));
   } else if (argc == 1) {
-#if 0
     cam.reset(
         new ImageSourceDuo(
-          new ImageSourceMono(0),
-          new ImageSourceMono(1)));
-#else
-    cam.reset(new VideoDev("/dev/video0", 4));
-#endif
+          new VideoDev("/dev/video0", 4),
+          new VideoDev("/dev/video1", 4)));
   } else if (argc == 2) {
     cam.reset(new ImageSourceMono(argv[1]));
   } else if (argc == 3) {
