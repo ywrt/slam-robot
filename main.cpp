@@ -21,6 +21,7 @@
 #include <atomic>
 #include <iostream>
 #include <fstream>
+#include <mutex>
 
 #include "opencv2/opencv.hpp"
 #include "localmap.h"
@@ -460,6 +461,33 @@ void TestMove() {
   is_moving.store(false);
 }
 
+std::mutex mu;
+std::vector<pair<int, Mat*>> fbuffer;
+void WriteImages() {
+  while (is_moving.load()) {
+    pair<int, Mat*> pair{0, NULL};
+
+    mu.lock();
+    if (fbuffer.size()) {
+      pair = fbuffer.back();
+      fbuffer.pop_back();
+    }
+    mu.unlock();
+
+    if (!pair.second) {
+      std::chrono::milliseconds dura(50);
+      std::this_thread::sleep_for(dura);
+      continue;
+    }
+
+    char b[100];
+    sprintf(b, "%08d.png", pair.first);
+    cv::imwrite(FLAGS_save + "/" + b, *(pair.second));
+    fprintf(stderr, "## Wrote frame %d\n", pair.first);
+    delete pair.second;
+  }
+}
+
 int main(int argc, char*argv[]) {
   // gl_init(argc, argv);
   google::ParseCommandLineFlags(&argc, &argv, true);
@@ -474,10 +502,15 @@ int main(int argc, char*argv[]) {
     setMouseCallback("Left", CallBackFunc, NULL);
   }
 
-  unique_ptr<std::thread> move;
+  vector<std::thread*> threads;
   is_moving.store(true);
   if (FLAGS_move) {
-    move.reset(new std::thread(TestMove));
+    threads.push_back(new std::thread(TestMove));
+  }
+  if (!FLAGS_save.empty()) {
+    threads.push_back(new std::thread(WriteImages));
+    threads.push_back(new std::thread(WriteImages));
+    threads.push_back(new std::thread(WriteImages));
   }
 
   std::unique_ptr<ImageSource> cam;
@@ -546,9 +579,10 @@ int main(int argc, char*argv[]) {
       break;
 
     if (!FLAGS_save.empty()) {
-      char b[100];
-      sprintf(b, "%08d.png", frame_ptr->id());
-      cv::imwrite(FLAGS_save + "/" + b, color);
+      Mat* m = new Mat;
+      *m = color.clone();
+      mu.lock();
+      fbuffer.push_back({frame_id, m});
     }
 
     // Blur it slightly: stddev=1
@@ -561,7 +595,7 @@ int main(int argc, char*argv[]) {
       frame_ptr->translation() = Vector3d::Zero();
       frame_ptr->rotation().setIdentity();
     } else if (map.frames.size() == 2) {
-      frame_ptr->translation() = -Vector3d::UnitX() * kBaseline;
+      frame_ptr->translation() = Vector3d::UnitX() * kBaseline;
  //     frame_ptr->translation()+= -Vector3d::UnitZ() * kBaseline;
       frame_ptr->rotation() = map.frames[frame_id - 1]->rotation();
     } else {
@@ -674,6 +708,11 @@ int main(int argc, char*argv[]) {
   printf("Iterations: %d, error %f\n",
          slam.iterations(),
          slam.error());
+
+  for (const auto& t : threads) {
+    t->join();
+    delete t;
+  }
   return 0;
 
 }
