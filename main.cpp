@@ -33,6 +33,7 @@ DEFINE_bool(drawdebug, true, "Show debugging display");
 DEFINE_bool(move, false, "Run test move sequence");
 DEFINE_bool(slam, true, "Run slam solver");
 DEFINE_string(save, "", "Save images to specified directory");
+DEFINE_string(load, "", "Load images from specified directory");
 
 using namespace std;
 using namespace cv;
@@ -102,8 +103,25 @@ class ImageSource {
   ImageSource() {}
  public:
   virtual ~ImageSource() {}
-  virtual bool GetObservation(int camera, Mat* img) = 0;
+  virtual bool GetObservation(int camera, int frame_id, Mat* img) = 0;
   virtual bool Init() = 0;
+};
+
+// Source images from a single video file.
+class ImageSourceFiles : public ImageSource {
+ public:
+  ImageSourceFiles(const string& dir) : dir_(dir) {}
+  bool Init() { return true; }
+  virtual bool GetObservation(int, int frame_id, Mat* img) {
+    char b[100];
+    sprintf(b, "%08d.png", frame_id);
+    *img = cv::imread(dir_ + "/" + b);
+
+    return img->data != NULL;
+  }
+
+ private:
+  const string dir_;
 };
 
 // Source images from a single video file.
@@ -117,7 +135,7 @@ class ImageSourceMono : public ImageSource {
     }
     return true;
   }
-  virtual bool GetObservation(int, Mat* img) {
+  virtual bool GetObservation(int, int, Mat* img) {
     return cam_.read(*img);
   }
 
@@ -154,11 +172,14 @@ class ImageSourceDuo : public ImageSource {
     return true;
   }
 
-  virtual bool GetObservation(int camera, Mat* img) {
-    if (camera == 0)
+  virtual bool GetObservation(int camera, int, Mat* img) {
+    if (camera == 0) {
+      cam1_.read(*img);
       return cam1_.read(*img);
-    else
+    } else {
+      cam2_.read(*img);
       return cam2_.read(*img);
+    }
   }
 
  private:
@@ -340,21 +361,17 @@ void CallBackFunc(int event, int x, int y, int flags, void* userdata) {
 void SolveCameras(LocalMap* map, Slam* slam) {
   // Print some debugging stats to STDOUT.
   // Re-run slam with increasingly tight rejection of outliers.
-  slam->SolveAllFrames(map, 10, false);
-  slam->SolveAllFrames(map, 5, false);
-  slam->SolveAllFrames(map, 2, false);
+  //slam->SolveAllFrames(map, 10, false);
+  //slam->SolveAllFrames(map, 5, false);
+  //slam->SolveAllFrames(map, 2, false);
 
   map->cameras[0]->Reset();
   map->cameras[1]->Reset();
 
-  map->frames[0]->translation() << 0,0,0;
-  map->frames[1]->translation() << 150,0,0;
+ // map->frames[0]->translation() << 0,0,0;
+  //map->frames[1]->translation() << 150,0,0;
   // Run total bundle adjustment including camera instrinsics.
-  slam->SolveAllFrames(map, 100, true);
-  slam->SolveAllFrames(map, 20, true);
-  slam->SolveAllFrames(map, 5, true);
   slam->SolveAllFrames(map, 2, true);
-  slam->SolveAllFrames(map, 0.5, true);
   map->Stats();
   printf("k1 k2 k3 fx fy cx cy\n");
   printf(" %8.5f, %8.5f, %8.5f, %8.5f, %8.5f, %8.5f, %8.5f\n",
@@ -425,14 +442,16 @@ void TestMove() {
 
   sleep(1);
 
+  double turn = 0.75;
+  double speed = 0.18;
   for (int i = 0; i < 8; ++i) {
-    v.Turn(0.5);
-    v.Speed(-0.18);
+    v.Turn(turn);
+    v.Speed(-speed);
     sleep(2);
     v.Speed(0);
 
-    v.Speed(0.18);
-    v.Turn(-0.5);
+    v.Speed(speed);
+    v.Turn(-turn);
     sleep(2);
     v.Speed(0);
   }
@@ -462,7 +481,9 @@ int main(int argc, char*argv[]) {
   }
 
   std::unique_ptr<ImageSource> cam;
-  if (argc == 1) {
+  if (!FLAGS_load.empty()) {
+    cam.reset(new ImageSourceFiles(FLAGS_load));
+  } else if (argc == 1) {
     cam.reset(new ImageSourceDuo);
   } else if (argc == 2) {
     cam.reset(new ImageSourceMono(argv[1]));
@@ -480,11 +501,14 @@ int main(int argc, char*argv[]) {
   // We assume two cameras, with frames from 'cam'
   // alternating between them. Initialize with the
   // distortion parameters. k1, k2, k3, fx, fy, cx, cy.
+  double focal = 416;
   map.AddCamera(new Camera{
-      -0.11148,  0.18131, -0.00085, 512.96132, -515.11507, 314.17485, 241.31441
+      //-0.11148,  0.18131, -0.00085, 512.96132, -515.11507, 314.17485, 241.31441
+      0, 0, 0, focal, -focal, 320, 240
       });
   map.AddCamera(new Camera{
-      -0.12310,  0.18615,  0.01386, 513.92203, -516.38275, 293.13978, 230.27529
+      //-0.12310,  0.18615,  0.01386, 513.92203, -516.38275, 293.13978, 230.27529
+      0, 0, 0, focal, -focal, 320, 240
       });
 
   // Initialize the cameras.
@@ -505,7 +529,7 @@ int main(int argc, char*argv[]) {
   Mat prev;
 
   // Which camera the previous frame came from.
-  int camera = 1;
+  int camera = 0;
   while (is_moving.load()) {
     have_image = false;
     camera ^= 1;
@@ -518,7 +542,7 @@ int main(int argc, char*argv[]) {
     //debug = true;
     // Fetch the next image.
     Mat color;
-    if (!cam->GetObservation(camera, &color))
+    if (!cam->GetObservation(camera, frame_id, &color))
       break;
 
     if (!FLAGS_save.empty()) {
@@ -537,7 +561,7 @@ int main(int argc, char*argv[]) {
       frame_ptr->translation() = Vector3d::Zero();
       frame_ptr->rotation().setIdentity();
     } else if (map.frames.size() == 2) {
-      frame_ptr->translation() = Vector3d::UnitX() * kBaseline;
+      frame_ptr->translation() = -Vector3d::UnitX() * kBaseline;
  //     frame_ptr->translation()+= -Vector3d::UnitZ() * kBaseline;
       frame_ptr->rotation() = map.frames[frame_id - 1]->rotation();
     } else {
@@ -590,7 +614,7 @@ int main(int argc, char*argv[]) {
         map.Clean(kErrorThreshold);
       }
 
-      //map.ApplyEpipolarConstraint();
+      map.ApplyEpipolarConstraint();
 
       // Rotate and scale the map back to a standard baseline.
       double err1 = slam.ReprojectMap(&map);
@@ -599,11 +623,19 @@ int main(int argc, char*argv[]) {
       CHECK_NEAR(err1, err2, 1e-1);
     }
 
+    if (frame_id > 50) SolveCameras(&map, &slam);
+
     // Draw observation history onto the left frame.
     if (FLAGS_drawdebug) {
       Mat out1 = prev.clone();
+      char buff[100];
+      sprintf(buff, "frame %3d camera %3d", frame_ptr->id() - 1, camera ^ 1);
+      cv::putText(out1, buff, Point2f(100, 300), FONT_HERSHEY_PLAIN, .7, Scalar(128,255,0));
       DrawDebug(map, *(map.cameras[camera ^ 1].get()), &out1);
+
       Mat out2 = color.clone();
+      sprintf(buff, "frame %3d camera %3d", frame_ptr->id(), camera);
+      cv::putText(out2, buff, Point2f(100, 300), FONT_HERSHEY_PLAIN, .7, Scalar(128,255,0));
       DrawDebug(map, *(map.cameras[camera].get()), &out2);
 
       if (camera&1) {

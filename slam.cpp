@@ -110,13 +110,14 @@ struct CameraStabilization {
       const T* const intrinsics,  // [k1, k2]
       T* residual) const {
 
-    residual[0] = T(1.0) * intrinsics[0] * intrinsics[0];
-    residual[1] = T(1.0) * intrinsics[1] * intrinsics[1];
-    residual[2] = T(1.0) * intrinsics[2] * intrinsics[2];
-    residual[3] = T(0.1) * (intrinsics[3] - T(530.1)) * (intrinsics[3] - T(530.));
-    residual[4] = T(0.1) * (intrinsics[4] - T(530.1)) * (intrinsics[4] - T(530.));
-    residual[5] = T(.01) * (intrinsics[5] - T(310.)) * (intrinsics[5] - T(310.));
-    residual[6] = T(.01) * (intrinsics[6] - T(239.)) * (intrinsics[6] - T(239.));
+    residual[0] = T(1000.0) * intrinsics[0] * intrinsics[0];
+    residual[1] = T(1000.0) * intrinsics[1] * intrinsics[1];
+    residual[2] = T(1000.0) * intrinsics[2] * intrinsics[2];
+    residual[3] = T(.1) * (intrinsics[3] - T(416.)) * (intrinsics[3] - T(416.));
+    //residual[4] = T(.00001) * (intrinsics[4] - T(-416.)) * (intrinsics[4] - T(-416.));
+    residual[4] = T(.1) * (intrinsics[4] + intrinsics[3]) * (intrinsics[4] + intrinsics[3]);
+    residual[5] = T(.01) * (intrinsics[5] - T(320.)) * (intrinsics[5] - T(320.));
+    residual[6] = T(.01) * (intrinsics[6] - T(240.)) * (intrinsics[6] - T(240.));
 
     return true;
   }
@@ -409,20 +410,6 @@ bool Slam::SetupProblem(
         prev->translation().data());
   }
 
-#if 0
-  for (auto& cam : map->cameras) {
-      auto loss = new ceres::CauchyLoss(5);
-      ceres::CostFunction* cost_function =
-          new ceres::AutoDiffCostFunction<CameraStabilization, 7, 7>(
-              new CameraStabilization());
-      problem_->AddResidualBlock(cost_function,
-                                loss /* squared loss */,
-                                cam->k);
-
-  }
-#endif
-
-
   return true;
 }
 
@@ -472,14 +459,23 @@ bool Slam::SolveAllFrames(
   if (!solve_cameras) {
     problem_->SetParameterBlockConstant(map->cameras[0]->k);
     problem_->SetParameterBlockConstant(map->cameras[1]->k);
-  }
+  } else {
+    auto loss = new ceres::CauchyLoss(5);
+    for (auto& cam : map->cameras) {
+      ceres::CostFunction* cost_function =
+          new ceres::AutoDiffCostFunction<CameraStabilization, 7, 7>(
+              new CameraStabilization());
+      problem_->AddResidualBlock(cost_function,
+                                loss /* squared loss */,
+                                cam->k);
+    }
+
 #if 0
-  else {
     problem_->SetParameterBlockConstant(map->frames[0]->rotation().coeffs().data());
     problem_->SetParameterBlockConstant(map->frames[0]->translation().data());
     problem_->SetParameterBlockConstant(map->frames[1]->translation().data());
-  }
 #endif
+  }
   return Run(solve_cameras);
 }
 

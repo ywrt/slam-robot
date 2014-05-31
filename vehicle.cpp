@@ -88,6 +88,7 @@ class PololuSMC : public UsbDevice {
 Vehicle::Vehicle() : motor_(new PololuSMC(&usb_)), servos_(new PololuMaestro(&usb_)) {
   motor_->Init();
   motor_->resume();
+  servos_->Init();
 }
 
 Vehicle::~Vehicle() {
