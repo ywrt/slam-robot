@@ -15,7 +15,6 @@
 #include <glog/logging.h>
 #include <gflags/gflags.h>
 
-
 #include <eigen3/Eigen/Eigen>
 #include <thread>
 #include <atomic>
@@ -30,6 +29,7 @@
 #include "slam.h"
 #include "matcher.h"
 #include "vehicle.h"
+#include "video.h"
 
 
 DEFINE_bool(drawdebug, true, "Show debugging display");
@@ -98,99 +98,6 @@ void DrawText(cv::Mat* out, const Camera& cam, const string& str, const Vector2d
   Point2f a(p(0), p(1));
   putText(*out, str, a, FONT_HERSHEY_PLAIN, 0.7, Scalar(0,0,255)); 
 }
-
-// Interface: A source of images. Typically a camera or
-// a video file.
-class ImageSource {
- protected:
-  ImageSource() {}
- public:
-  virtual ~ImageSource() {}
-  virtual bool GetObservation(int camera, int frame_id, Mat* img) = 0;
-  virtual bool Init() = 0;
-};
-
-// Source images from a single video file.
-class ImageSourceFiles : public ImageSource {
- public:
-  ImageSourceFiles(const string& dir) : dir_(dir) {}
-  bool Init() { return true; }
-  virtual bool GetObservation(int, int frame_id, Mat* img) {
-    char b[100];
-    sprintf(b, "%08d.png", frame_id);
-    *img = cv::imread(dir_ + "/" + b);
-
-    return img->data != NULL;
-  }
-
- private:
-  const string dir_;
-};
-
-// Source images from a single video file.
-class ImageSourceMono : public ImageSource {
- public:
-  ImageSourceMono(const char* filename) : filename_(filename), cam_(filename) {}
-  bool Init() {
-    if (!cam_.isOpened()) {
-      printf("Failed to open video file: %s\n", filename_);
-      return false;
-    }
-    return true;
-  }
-  virtual bool GetObservation(int, int, Mat* img) {
-    return cam_.read(*img);
-  }
-
- private:
-  const char* filename_;
-  VideoCapture cam_;
-};
-
-// Source images from two video files.
-class ImageSourceDuo : public ImageSource {
- public:
-  ImageSourceDuo(const char* filename1, const char* filename2) :
-      filename1_(filename1), filename2_(filename2),
-      cam1_(filename1), cam2_(filename2) {}
-
-  ImageSourceDuo() :
-      filename1_("left"), filename2_("right"),
-      cam1_(0), cam2_(1) {}
-
-  bool Init() {
-    if (!cam1_.isOpened()) {
-      printf("Failed to open video file: %s\n", filename1_);
-      return false;
-    }
-    if (!cam2_.isOpened()) {
-      printf("Failed to open video file: %s\n", filename2_);
-      return false;
-    }
-    cam1_.set(CV_CAP_PROP_FRAME_WIDTH, 640);
-    cam2_.set(CV_CAP_PROP_FRAME_WIDTH, 640);
-
-    cam1_.set(CV_CAP_PROP_FPS, 10);
-    cam2_.set(CV_CAP_PROP_FPS, 10);
-    return true;
-  }
-
-  virtual bool GetObservation(int camera, int, Mat* img) {
-    if (camera == 0) {
-      return cam1_.read(*img);
-    } else {
-      return cam2_.read(*img);
-    }
-  }
-
- private:
-  const char* filename1_;
-  const char* filename2_;
-  VideoCapture cam1_;
-  VideoCapture cam2_;
-};
-
-
 void DrawDebug(const LocalMap& map, const Camera& cam, Mat* img) {
   Mat& out = *img;
   int frame_id = map.frames.back()->id();
@@ -482,7 +389,9 @@ void WriteImages() {
 
     char b[100];
     sprintf(b, "%08d.png", pair.first);
+
     cv::imwrite(FLAGS_save + "/" + b, *(pair.second));
+
     fprintf(stderr, "## Wrote frame %d\n", pair.first);
     delete pair.second;
   }
@@ -538,15 +447,26 @@ int main(int argc, char*argv[]) {
   if (!FLAGS_load.empty()) {
     cam.reset(new ImageSourceFiles(FLAGS_load));
   } else if (argc == 1) {
-    cam.reset(new ImageSourceDuo);
+#if 0
+    cam.reset(
+        new ImageSourceDuo(
+          new ImageSourceMono(0),
+          new ImageSourceMono(1)));
+#else
+    cam.reset(new VideoDev("/dev/video0", 4));
+#endif
   } else if (argc == 2) {
     cam.reset(new ImageSourceMono(argv[1]));
   } else if (argc == 3) {
-    cam.reset(new ImageSourceDuo(argv[1], argv[2]));
+    cam.reset(
+        new ImageSourceDuo(
+            new ImageSourceMono(argv[1]),
+            new ImageSourceMono(argv[2])));
   } else {
     printf("Too many args\n");
     return 1;
   }
+  cam->Init();
  
   // Our knowledge of the 3D world. 
   LocalMap map;

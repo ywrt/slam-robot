@@ -11,7 +11,8 @@ OBJS = slam.o \
        planner.o \
        histogram.o \
        matcher.o \
-       vehicle.o
+       vehicle.o \
+       video.o
 
 TESTS = region grid histogram descriptor
 

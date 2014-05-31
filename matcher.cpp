@@ -354,6 +354,7 @@ bool Matcher::Track(const Mat& img, Frame* frame, int camera, LocalMap* map, std
     return true;
 
   // New keyframe, so add the matches permanantly.
+  view->frame->is_keyframe_ = true;
   for (auto& m : matches) {
     Feature* f = m.first;
     const auto& pt = m.second;
