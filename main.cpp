@@ -581,8 +581,13 @@ int main(int argc, char*argv[]) {
     if (!FLAGS_save.empty()) {
       Mat* m = new Mat;
       *m = color.clone();
+      int count = 0;
       mu.lock();
       fbuffer.push_back({frame_id, m});
+      count = fbuffer.size();
+      mu.unlock();
+
+      printf("# Fbuffer is %d images\n", count);
     }
 
     // Blur it slightly: stddev=1
